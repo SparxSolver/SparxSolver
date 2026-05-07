@@ -1,0 +1,68 @@
+{
+  "manifest_version": 3,
+  "name": "SparxSolver",
+  "description": "Sparx Maths, Unlocked.",
+  "version": "1.0.0",
+  "permissions": [
+    "storage",
+    "debugger",
+    "tabs",
+    "activeTab"
+  ],
+  "host_permissions": [
+    "<all_urls>"
+  ],
+  "action": {
+    "default_icon": {
+      "16": "icon.png",
+      "48": "icon.png",
+      "128": "icon.png"
+    }
+  },
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://sparxmaths.uk/*",
+        "https://www.sparxmaths.uk/*",
+        "https://maths.sparx-learning.com/*"
+      ],
+      "js": [
+        "content.js"
+      ],
+      "css": [
+        "styles.css"
+      ]
+    }
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": [
+        "icon.png"
+      ],
+      "matches": [
+        "https://sparxmaths.uk/*",
+        "https://www.sparxmaths.uk/*"
+      ]
+    },
+    {
+      "resources": [
+        "bundle-1.js"
+      ],
+      "matches": [
+        "https://sparxmaths.uk/*",
+        "https://www.sparxmaths.uk/*"
+      ]
+    }
+  ],
+  "icons": {
+    "16": "icon.png",
+    "48": "icon.png",
+    "128": "icon.png"
+  },
+  "content_security_policy": {
+    "extension_page": "script-src 'self' 'wasm-unsafe-eval'; object-src 'self'"
+  }
+}
