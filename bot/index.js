@@ -76,7 +76,7 @@ const cfg = {
   defaultBotServiceName: 'bot.service'
 };
 
-const ver = `SparxSolver 1.0.2`;
+const ver = `SparxSolver 1.2.1`;
 const ephFlags = 1 << 6;
 const issueStatusCache = {
   text: '',
