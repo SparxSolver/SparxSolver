@@ -2,15 +2,19 @@
   "manifest_version": 3,
   "name": "SparxSolver",
   "description": "Sparx Maths, Unlocked.",
-  "version": "1.0.0",
+  "version": "1.2.0",
   "permissions": [
     "storage",
-    "debugger",
     "tabs",
     "activeTab"
   ],
   "host_permissions": [
-    "<all_urls>"
+    "<all_urls>",
+    "https://sparxmaths.uk/*",
+    "https://www.sparxmaths.uk/*",
+    "https://sparx-learning.com/*",
+    "https://*.sparx-learning.com/*",
+    "https://api.sparx-learning.com/*"
   ],
   "action": {
     "default_icon": {
@@ -27,14 +31,16 @@
       "matches": [
         "https://sparxmaths.uk/*",
         "https://www.sparxmaths.uk/*",
-        "https://maths.sparx-learning.com/*"
+        "https://sparx-learning.com/*",
+        "https://*.sparx-learning.com/*"
       ],
       "js": [
         "content.js"
       ],
       "css": [
         "styles.css"
-      ]
+      ],
+      "run_at": "document_start"
     }
   ],
   "web_accessible_resources": [
@@ -44,7 +50,9 @@
       ],
       "matches": [
         "https://sparxmaths.uk/*",
-        "https://www.sparxmaths.uk/*"
+        "https://www.sparxmaths.uk/*",
+        "https://sparx-learning.com/*",
+        "https://*.sparx-learning.com/*"
       ]
     },
     {
@@ -53,7 +61,9 @@
       ],
       "matches": [
         "https://sparxmaths.uk/*",
-        "https://www.sparxmaths.uk/*"
+        "https://www.sparxmaths.uk/*",
+        "https://sparx-learning.com/*",
+        "https://*.sparx-learning.com/*"
       ]
     }
   ],

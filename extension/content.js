@@ -1,29 +1,114 @@
-let solving       = false;
+let solving = false;
 let pendingAction = null;
-let lastUrl       = location.href;
+let activeRequest = null;
+let lastUrl = location.href;
+let lastBookworkState = null;
+let pageRefreshTimer = null;
+let versionStatusRequested = false;
+let versionStatus = {
+    currentVersion: "1.1.0",
+    latestVersion: null,
+    latestReleaseUrl: "https://github.com/SparxSolver/SparxSolver/releases",
+    updateAvailable: false,
+    checked: false,
+    checking: true,
+    error: null,
+};
+
+const CARD_ID = "ssSolverCard";
+const BUTTON_WRAPPER_ID = "ssButtonWrapper";
 
 const footerMessages = [
-    "SparxSolver doesn't share or store any data from you. <a href='https://discord.com/channels/1486793780391575693/1489369223711948961' target='_blank' style='color:#3b82f6;text-decoration:none;'>[Privacy Policy]</a>",
+    "SparxSolver doesn't share or store question data. <a href='https://discord.com/channels/1486793780391575693/1489369223711948961' target='_blank' style='color:#3b82f6;text-decoration:none;'>[Privacy Policy]</a>",
     "SparxSolver is an open source project. <a href='https://github.com/sparxsolver/sparxsolver' target='_blank' style='color:#3b82f6;text-decoration:none;'>[Check the GitHub]</a>",
     "SparxSolver is motivated by donations. <a href='https://discord.com/channels/1486793780391575693/1489363061419802775' target='_blank' style='color:#3b82f6;text-decoration:none;'>[Support Us]</a>",
-    "Answer wrong? Report it to our discord so we can improve! <a href='https://discord.com/channels/1486793780391575693/1493699817271070730' target='_blank' style='color:#3b82f6;text-decoration:none;'>[Important Info]</a>",
-    "SparxSolver - Affordable uses gpt-4o-mini.",
-    "SparxSolver - Basic uses gpt-4o.",
-    "SparxSolver - Pro uses gpt-5.4-mini.",
-    "SparxSolver - Premium uses gpt-5.4.",
+    "Answer wrong? Report it to our Discord so we can improve. <a href='https://discord.com/channels/1486793780391575693/1493699817271070730' target='_blank' style='color:#3b82f6;text-decoration:none;'>[Important Info]</a>",
+    "SparxSolver Affordable uses gpt-4o.",
+    "SparxSolver Basic uses gpt-5.4-mini.",
+    "SparxSolver Pro uses gpt-5.4.",
+    "SparxSolver Premium uses gpt-5.5.",
     "You can always <a href='https://discord.com/channels/1486793780391575693/1492211341274910911' target='_blank' style='color:#3b82f6;text-decoration:none;'>[upgrade your plan]</a> in the Patreon.",
 ];
+
 function getRandomFooter() {
     return footerMessages[Math.floor(Math.random() * footerMessages.length)];
+}
+
+function normalizeLicenseKey(value) {
+    return String(value || "").trim().toUpperCase();
+}
+
+function escapeHtml(value) {
+    return String(value || "")
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#39;");
+}
+
+function escapeAttribute(value) {
+    return escapeHtml(value).replace(/`/g, "&#96;");
+}
+
+function getCard() {
+    return document.getElementById(CARD_ID);
 }
 
 function getHelpMenu() {
     return `
         <b>How to use:</b><br>
-        • Press <b>Solve</b> to get the answer<br>
-        • Press <b>Help</b> for the explanation<br><br>
+        - Press <b>Solve</b> to get the answer<br>
+        - Press <b>Help</b> for the explanation<br><br>
         Drag the card anywhere to move it.
     `;
+}
+
+function getVersionStatusHTML() {
+    const currentVersion = escapeHtml(versionStatus.currentVersion || "1.1.0");
+    const latestVersion = escapeHtml(versionStatus.latestVersion || versionStatus.currentVersion || "1.1.0");
+    const latestReleaseUrl = escapeAttribute(
+        versionStatus.latestReleaseUrl || "https://github.com/SparxSolver/SparxSolver/releases"
+    );
+
+    if (versionStatus.updateAvailable) {
+        return `SparxSolver is out of date. Update <a href="${latestReleaseUrl}" target="_blank" rel="noopener noreferrer" style="color:#93c5fd;text-decoration:none;">here</a> (${latestVersion}).`;
+    }
+
+    if (versionStatus.checked && versionStatus.latestVersion && !versionStatus.error) {
+        return `SparxSolver is up to date (${currentVersion}).`;
+    }
+
+    if (versionStatus.checking) {
+        return `Checking for SparxSolver updates...`;
+    }
+
+    return `SparxSolver version ${currentVersion}.`;
+}
+
+function renderVersionStatus() {
+    const node = getCard()?.querySelector("#ssVersionStatus");
+    if (!node) return;
+
+    node.innerHTML = getVersionStatusHTML();
+    node.style.opacity = versionStatus.updateAvailable ? "0.95" : "0.65";
+    node.style.color = versionStatus.updateAvailable ? "#bfdbfe" : "inherit";
+}
+
+function requestVersionStatus() {
+    if (versionStatusRequested) return;
+    versionStatusRequested = true;
+
+    try {
+        chrome.runtime.sendMessage({ action: "get_version_status" });
+    } catch {
+        versionStatus = {
+            ...versionStatus,
+            checking: false,
+            error: "Could not request version status.",
+        };
+        renderVersionStatus();
+    }
 }
 
 function getKeyForm() {
@@ -49,7 +134,7 @@ function getKeyForm() {
             width:100%;padding:6px;border-radius:6px;border:none;
             background:#3b82f6;color:#fff;font-size:12px;
             cursor:pointer;font-weight:bold;margin-bottom:8px;
-        ">Activate</button>
+        ">Activate key</button>
         <div style="font-size:11px;opacity:0.6;text-align:center;">
             Don't have a key? Buy one
             <a
@@ -62,12 +147,15 @@ function getKeyForm() {
     `;
 }
 
-function buildAnswerHTML(answer, label) {
-    const safeAnswer = answer.replace(/\n/g, "<br>");
+function buildAnswerHTML(answer, label, options = {}) {
+    const displayAnswer = options.bookwork ? answerOnlyForBookwork(answer) : answer;
+    const safeAnswer = escapeHtml(displayAnswer).replace(/\n/g, "<br>");
+    const safeLabel = escapeHtml(label);
+
     return `
         <div style="line-height:1.5;">${safeAnswer}</div>
         <div style="font-size:11px;opacity:0.55;display:flex;align-items:center;gap:6px;">
-            <span>— ${label}</span>
+            <span>- ${safeLabel}</span>
             <span
                 id="ssChangeKey"
                 style="
@@ -86,16 +174,56 @@ function isValidPage() {
     return location.href.includes("/student/package/");
 }
 
-function createCard(text) {
-    if (!isValidPage()) {
-        document.querySelector(".Card")?.remove();
+function getPageTextWithoutSolver() {
+    let text = document.body?.innerText || "";
+    const cardText = getCard()?.innerText;
+    const buttonText = document.getElementById(BUTTON_WRAPPER_ID)?.innerText;
+    if (cardText) text = text.replace(cardText, "");
+    if (buttonText) text = text.replace(buttonText, "");
+    return text.replace(/\s+/g, " ").trim().toLowerCase();
+}
+
+function isBookworkCheck() {
+    const url = location.href.toLowerCase();
+    const text = getPageTextWithoutSolver()
+        .replace(/\bbook\s*work\s*code\s*:\s*[a-z0-9-]+/g, "")
+        .replace(/\bbookwork\s*code\s*:\s*[a-z0-9-]+/g, "");
+
+    return url.includes("bookwork") ||
+        /\bbook\s*work\s*check\b/.test(text) ||
+        /\bbookwork\s*check\b/.test(text) ||
+        text.includes("use your bookwork") ||
+        text.includes("from your bookwork") ||
+        text.includes("copy your answer from your bookwork");
+}
+
+function answerOnlyForBookwork(answer) {
+    const text = String(answer || "").trim();
+    const labelledAnswer = text.match(/(?:^|\n)\s*(?:final\s+)?answer\s*(?:is)?\s*[:=-]\s*(.+)$/i);
+    if (labelledAnswer) return labelledAnswer[1].trim();
+
+    const lines = text
+        .split(/\r?\n/)
+        .map((line) => line.replace(/^[\s>*-]+/, "").trim())
+        .filter(Boolean);
+
+    return lines.length > 1 ? lines[lines.length - 1] : text;
+}
+
+function createCard(text, options = {}) {
+    if (!isValidPage() || isBookworkCheck()) {
+        getCard()?.remove();
         return;
     }
 
-    let card = document.querySelector(".Card");
+    let card = getCard();
+    const showingDefault = text === undefined;
+    const state = options.state || (showingDefault ? "default" : "message");
+    lastBookworkState = isBookworkCheck();
 
     if (!card) {
         card = document.createElement("div");
+        card.id = CARD_ID;
         card.className = "Card";
         card.style.cssText = `
             position:fixed;
@@ -125,41 +253,49 @@ function createCard(text) {
                 </div>
             </div>
             <div id="ssCardContent"></div>
+            <div id="ssVersionStatus" style="font-size:11px;margin-top:10px;line-height:1.4;"></div>
             <div id="ssFooter" style="font-size:10px;opacity:0.55;margin-top:10px;text-align:right;line-height:1.4;"></div>
         `;
 
         document.body.appendChild(card);
 
         let dragging = false;
-        let startMouseX, startMouseY, startCardX, startCardY;
+        let startMouseX;
+        let startMouseY;
+        let startCardX;
+        let startCardY;
 
-        card.addEventListener("mousedown", (e) => {
-            if (["INPUT", "BUTTON", "A", "TEXTAREA"].includes(e.target.tagName)) return;
-            const rect  = card.getBoundingClientRect();
-            dragging    = true;
-            startMouseX = e.clientX;
-            startMouseY = e.clientY;
-            startCardX  = rect.left;
-            startCardY  = rect.top;
+        card.addEventListener("mousedown", (event) => {
+            if (["INPUT", "BUTTON", "A", "TEXTAREA"].includes(event.target.tagName)) return;
+            const rect = card.getBoundingClientRect();
+            dragging = true;
+            startMouseX = event.clientX;
+            startMouseY = event.clientY;
+            startCardX = rect.left;
+            startCardY = rect.top;
             card.style.right = "auto";
-            card.style.left  = rect.left + "px";
-            card.style.top   = rect.top  + "px";
-            e.preventDefault();
+            card.style.left = `${rect.left}px`;
+            card.style.top = `${rect.top}px`;
+            event.preventDefault();
         });
 
-        document.addEventListener("mousemove", (e) => {
+        document.addEventListener("mousemove", (event) => {
             if (!dragging) return;
-            const newX = startCardX + (e.clientX - startMouseX);
-            const newY = startCardY + (e.clientY - startMouseY);
-            card.style.left = Math.max(0, Math.min(newX, window.innerWidth  - card.offsetWidth))  + "px";
-            card.style.top  = Math.max(0, Math.min(newY, window.innerHeight - card.offsetHeight)) + "px";
+            const newX = startCardX + (event.clientX - startMouseX);
+            const newY = startCardY + (event.clientY - startMouseY);
+            card.style.left = `${Math.max(0, Math.min(newX, window.innerWidth - card.offsetWidth))}px`;
+            card.style.top = `${Math.max(0, Math.min(newY, window.innerHeight - card.offsetHeight))}px`;
         });
 
-        document.addEventListener("mouseup", () => { dragging = false; });
+        document.addEventListener("mouseup", () => {
+            dragging = false;
+        });
     }
 
-    const content = (text !== undefined) ? text : getHelpMenu();
-    card.querySelector("#ssCardContent").innerHTML = content;
+    card.dataset.ssState = state;
+    card.querySelector("#ssCardContent").innerHTML = showingDefault ? getHelpMenu() : text;
+    renderVersionStatus();
+    requestVersionStatus();
 
     const changeBtn = card.querySelector("#ssChangeKey");
     if (changeBtn) {
@@ -170,7 +306,7 @@ function createCard(text) {
     }
 
     const footer = card.querySelector("#ssFooter");
-    if (content === getHelpMenu()) {
+    if (showingDefault) {
         footer.innerHTML = `SparxSolver can make mistakes. <a href="https://discord.com/channels/1486793780391575693/1489361351309791262" target="_blank" style="color:inherit;text-decoration:none;">Check important info</a>`;
     } else {
         footer.innerHTML = getRandomFooter();
@@ -178,85 +314,130 @@ function createCard(text) {
 }
 
 function showKeyForm() {
-    createCard(getKeyForm());
+    createCard(getKeyForm(), { state: "key" });
 
-    const card   = document.querySelector(".Card");
-    const input  = card.querySelector("#ssKeyInput");
-    const btn    = card.querySelector("#ssActivateBtn");
+    const card = getCard();
+    const input = card.querySelector("#ssKeyInput");
+    const btn = card.querySelector("#ssActivateBtn");
     const status = card.querySelector("#ssKeyStatus");
 
     function tryActivate() {
-        const key = input.value.trim();
-        if (!key) { status.textContent = "Please enter your key."; return; }
-        status.textContent = "Validating…";
+        const key = normalizeLicenseKey(input.value);
+        if (!key) {
+            status.textContent = "Please enter your key.";
+            return;
+        }
+        input.value = key;
+        status.textContent = "Validating...";
         status.style.color = "#aaa";
-        btn.disabled       = true;
-        input.disabled     = true;
+        btn.disabled = true;
+        input.disabled = true;
         chrome.runtime.sendMessage({ action: "validate_key", key });
     }
 
     btn.addEventListener("click", tryActivate);
-    input.addEventListener("keydown", (e) => { if (e.key === "Enter") tryActivate(); });
+    input.addEventListener("keydown", (event) => {
+        if (event.key === "Enter") tryActivate();
+    });
     setTimeout(() => input.focus(), 50);
 }
 
 async function fireAction(action) {
     if (solving) return;
+    const request = {
+        action,
+        bookwork: isBookworkCheck(),
+    };
+
+    if (request.bookwork) {
+        return;
+    }
+
     const { licenseKey } = await chrome.storage.local.get("licenseKey");
     if (!licenseKey) {
-        pendingAction = action;
+        pendingAction = request;
         showKeyForm();
         return;
     }
+
+    startRequest(request, licenseKey);
+}
+
+function startRequest(request, licenseKey) {
     solving = true;
-    createCard(action === "capture_and_help" ? "Thinking…" : "Solving…");
-    chrome.runtime.sendMessage({ action, licenseKey });
+    activeRequest = request;
+    createCard(request.action === "capture_and_help" ? "Thinking..." : "Solving...", { state: "loading" });
+    chrome.runtime.sendMessage({
+        action: request.action,
+        licenseKey,
+        bookwork: request.bookwork,
+    });
 }
 
 chrome.runtime.onMessage.addListener((msg) => {
+    if (msg.action === "version_status") {
+        if (msg.data && typeof msg.data === "object") {
+            versionStatus = {
+                ...versionStatus,
+                ...msg.data,
+            };
+        }
+        renderVersionStatus();
+        return;
+    }
 
     if (msg.action === "validate_result") {
-        const card   = document.querySelector(".Card");
+        const card = getCard();
         const status = card?.querySelector("#ssKeyStatus");
-        const btn    = card?.querySelector("#ssActivateBtn");
-        const input  = card?.querySelector("#ssKeyInput");
+        const btn = card?.querySelector("#ssActivateBtn");
+        const input = card?.querySelector("#ssKeyInput");
 
         if (msg.valid) {
             chrome.storage.local.set({ licenseKey: msg.key }, () => {
                 if (pendingAction) {
-                    const action  = pendingAction;
+                    const request = pendingAction;
                     pendingAction = null;
-                    solving       = true;
-                    createCard(action === "capture_and_help" ? "Thinking…" : "Solving…");
-                    chrome.runtime.sendMessage({ action, licenseKey: msg.key });
+                    if (request.bookwork) {
+                        return;
+                    }
+                    startRequest(request, msg.key);
                 } else {
                     createCard();
                 }
             });
         } else {
-            if (status) { status.textContent = msg.reason || "Invalid key — please check and try again."; status.style.color = "#f87171"; }
-            if (btn)    btn.disabled   = false;
-            if (input)  input.disabled = false;
+            if (status) {
+                status.textContent = msg.reason || "Invalid key. Please check and try again.";
+                status.style.color = "#f87171";
+            }
+            if (btn) btn.disabled = false;
+            if (input) input.disabled = false;
         }
         return;
     }
 
     if (msg.action === "answer") {
         solving = false;
+        const request = activeRequest;
+        activeRequest = null;
         if (msg.data && typeof msg.data === "object" && msg.data.answer) {
-            createCard(buildAnswerHTML(msg.data.answer, msg.data.label));
+            createCard(buildAnswerHTML(msg.data.answer, msg.data.label, {
+                ...msg.data,
+                bookwork: Boolean(msg.data.bookwork || request?.bookwork),
+            }), { state: "answer" });
         } else {
-            createCard(String(msg.data));
+            createCard(String(msg.data), { state: "answer" });
         }
     }
 
     if (msg.action === "error") {
         solving = false;
+        activeRequest = null;
         if (msg.authError) {
             chrome.storage.local.remove("licenseKey");
             pendingAction = null;
         }
-        createCard("⚠ " + msg.data);
+        createCard(`Warning: ${escapeHtml(msg.data)}`, { state: "error" });
     }
 });
 
@@ -270,29 +451,59 @@ function styleLikeSparx(btn, baseBtn) {
 
 function findAnswerButton() {
     for (const btn of document.querySelectorAll("button")) {
+        if (btn.id === "helpBtn" || btn.id === "solveBtn") continue;
         const text = (btn.innerText || "").toLowerCase().trim();
         if (text.includes("answer") || text.includes("submit") || text.includes("check")) return btn;
     }
     return null;
 }
 
+function removeInjectedButtons() {
+    const wrapper = document.getElementById(BUTTON_WRAPPER_ID);
+    if (!wrapper) return;
+
+    const answerBtn = Array.from(wrapper.querySelectorAll("button"))
+        .find((btn) => btn.id !== "helpBtn" && btn.id !== "solveBtn");
+
+    if (answerBtn && wrapper.parentElement) {
+        wrapper.parentElement.insertBefore(answerBtn, wrapper);
+    }
+
+    wrapper.remove();
+}
+
 function injectButton() {
-    if (!isValidPage()) return;
+    if (!isValidPage() || isBookworkCheck()) {
+        removeInjectedButtons();
+        return;
+    }
+
     const answerBtn = findAnswerButton();
     if (!answerBtn || document.querySelector("#solveBtn")) return;
 
     const wrapper = document.createElement("div");
+    wrapper.id = BUTTON_WRAPPER_ID;
     wrapper.style.cssText = "display:flex;align-items:center;gap:8px;";
 
     const helpBtn = document.createElement("button");
-    helpBtn.id = "helpBtn"; helpBtn.textContent = "Help";
+    helpBtn.id = "helpBtn";
+    helpBtn.textContent = "Help";
     styleLikeSparx(helpBtn, answerBtn);
-    helpBtn.onclick = (e) => { e.preventDefault(); e.stopImmediatePropagation(); fireAction("capture_and_help"); };
+    helpBtn.onclick = (event) => {
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        fireAction("capture_and_help");
+    };
 
     const solveBtn = document.createElement("button");
-    solveBtn.id = "solveBtn"; solveBtn.textContent = "Solve";
+    solveBtn.id = "solveBtn";
+    solveBtn.textContent = "Solve";
     styleLikeSparx(solveBtn, answerBtn);
-    solveBtn.onclick = (e) => { e.preventDefault(); e.stopImmediatePropagation(); fireAction("capture_and_solve"); };
+    solveBtn.onclick = (event) => {
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        fireAction("capture_and_solve");
+    };
 
     answerBtn.parentElement.insertBefore(wrapper, answerBtn);
     wrapper.appendChild(helpBtn);
@@ -300,19 +511,66 @@ function injectButton() {
     wrapper.appendChild(answerBtn);
 }
 
+function clearBookworkUi() {
+    removeInjectedButtons();
+    getCard()?.remove();
+}
+
 function watchUrlChange() {
     setInterval(() => {
         if (location.href !== lastUrl) {
             lastUrl = location.href;
-            if (isValidPage()) createCard();
-            else document.querySelector(".Card")?.remove();
+            if (isValidPage() && !isBookworkCheck()) {
+                createCard();
+                injectButton();
+            } else {
+                clearBookworkUi();
+            }
         }
     }, 500);
 }
 
-if (isValidPage()) createCard();
+function refreshUiForPageChange() {
+    if (!isValidPage()) return;
 
-watchUrlChange();
-const observer = new MutationObserver(() => injectButton());
-observer.observe(document.body, { childList: true, subtree: true });
-setInterval(injectButton, 1500);
+    const bookwork = isBookworkCheck();
+    if (bookwork) {
+        clearBookworkUi();
+        lastBookworkState = true;
+        return;
+    }
+
+    if (!getCard()) {
+        createCard();
+    }
+    injectButton();
+    lastBookworkState = false;
+}
+
+function scheduleUiRefresh() {
+    if (pageRefreshTimer) return;
+    pageRefreshTimer = setTimeout(() => {
+        pageRefreshTimer = null;
+        refreshUiForPageChange();
+    }, 250);
+}
+
+function startUi() {
+    if (isValidPage() && !isBookworkCheck()) {
+        createCard();
+        injectButton();
+    } else {
+        clearBookworkUi();
+    }
+
+    watchUrlChange();
+    const observer = new MutationObserver(scheduleUiRefresh);
+    observer.observe(document.body, { childList: true, subtree: true, characterData: true });
+    setInterval(scheduleUiRefresh, 1500);
+}
+
+if (document.body) {
+    startUi();
+} else {
+    document.addEventListener("DOMContentLoaded", startUi, { once: true });
+}
