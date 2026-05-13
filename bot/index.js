@@ -79,7 +79,7 @@ const cfg = {
   defaultBotServiceName: 'bot.service'
 };
 
-const ver = `SparxSolver 1.0.2`;
+const ver = `SparxSolver 1.3.1`;
 const ephFlags = 1 << 6;
 const issueStatusCache = {
   text: '',
@@ -233,7 +233,7 @@ Buy any one of our plans from our [Patreon](${urls.patreon}):
   {
     title: `3. Download the Extension`,
     description: [`
-1. Download the extension from our GitHub: [[Click here]](https://github.com/user-attachments/files/26836795/SparxSolver.1.0.0.zip)
+1. Download the extension from our GitHub: [[Click here]](https://github.com/SparxSolver/SparxSolver/releases/tag/SparxSolver)
 2. Extract the zip file
 3. Then go to your browser
 4. type \`chrome://extensions\` in the address bar
