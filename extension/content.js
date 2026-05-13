@@ -6,9 +6,9 @@ let lastBookworkState = null;
 let pageRefreshTimer = null;
 let versionStatusRequested = false;
 let versionStatus = {
-    currentVersion: "1.1.0",
+    currentVersion: "1.2.1",
     latestVersion: null,
-    latestReleaseUrl: "https://github.com/SparxSolver/SparxSolver/releases",
+    latestReleaseUrl: "https://github.com/SparxSolver/SparxSolver/releases/tag/SparxSolver",
     updateAvailable: false,
     checked: false,
     checking: true,
@@ -65,32 +65,25 @@ function getHelpMenu() {
 }
 
 function getVersionStatusHTML() {
-    const currentVersion = escapeHtml(versionStatus.currentVersion || "1.1.0");
-    const latestVersion = escapeHtml(versionStatus.latestVersion || versionStatus.currentVersion || "1.1.0");
+    const latestVersion = escapeHtml(versionStatus.latestVersion || versionStatus.currentVersion || "1.2.1");
     const latestReleaseUrl = escapeAttribute(
-        versionStatus.latestReleaseUrl || "https://github.com/SparxSolver/SparxSolver/releases"
+        versionStatus.latestReleaseUrl || "https://github.com/SparxSolver/SparxSolver/releases/tag/SparxSolver"
     );
 
     if (versionStatus.updateAvailable) {
         return `SparxSolver is out of date. Update <a href="${latestReleaseUrl}" target="_blank" rel="noopener noreferrer" style="color:#93c5fd;text-decoration:none;">here</a> (${latestVersion}).`;
     }
 
-    if (versionStatus.checked && versionStatus.latestVersion && !versionStatus.error) {
-        return `SparxSolver is up to date (${currentVersion}).`;
-    }
-
-    if (versionStatus.checking) {
-        return `Checking for SparxSolver updates...`;
-    }
-
-    return `SparxSolver version ${currentVersion}.`;
+    return "";
 }
 
 function renderVersionStatus() {
     const node = getCard()?.querySelector("#ssVersionStatus");
     if (!node) return;
 
-    node.innerHTML = getVersionStatusHTML();
+    const html = getVersionStatusHTML();
+    node.innerHTML = html;
+    node.style.display = html ? "block" : "none";
     node.style.opacity = versionStatus.updateAvailable ? "0.95" : "0.65";
     node.style.color = versionStatus.updateAvailable ? "#bfdbfe" : "inherit";
 }

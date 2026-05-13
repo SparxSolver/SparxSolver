@@ -1,8 +1,8 @@
 const WORKER_URL = "https://sparxsolver.qbqtcx.workers.dev";
 const REQUEST_TIMEOUT_MS = 30000;
 const DEFAULT_VERSION_INFO = {
-    version: "1.1.0",
-    releasesUrl: "https://github.com/SparxSolver/SparxSolver/releases",
+    version: "1.2.1",
+    releasesUrl: "https://github.com/SparxSolver/SparxSolver/releases/tag/SparxSolver",
     releasesApiUrl: "https://api.github.com/repos/SparxSolver/SparxSolver/releases",
     latestReleaseApiUrl: "https://api.github.com/repos/SparxSolver/SparxSolver/releases/latest",
 };
@@ -102,7 +102,7 @@ async function checkVersion() {
             const data = await res.json();
             const latest = pickLatestVersionedRelease(data);
             const latestVersion = latest?.version || "";
-            const latestReleaseUrl = latest?.release?.html_url || releasesUrl;
+            const latestReleaseUrl = releasesUrl;
 
             versionStatus = {
                 currentVersion,
@@ -124,7 +124,7 @@ async function checkVersion() {
 
                 const latest = pickLatestVersionedRelease(await fallbackRes.json());
                 const latestVersion = latest?.version || "";
-                const latestReleaseUrl = latest?.release?.html_url || releasesUrl;
+                const latestReleaseUrl = releasesUrl;
 
                 versionStatus = {
                     currentVersion,
