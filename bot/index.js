@@ -1,4 +1,4 @@
-require('dotenv').config();
+require('dotenv').config({ quiet: true });
 
 const os = require('os');
 const { execFile } = require('child_process');
@@ -15,6 +15,7 @@ const {
   ActionRowBuilder,
   ButtonBuilder,
   ButtonStyle,
+  StringSelectMenuBuilder,
   ModalBuilder,
   TextInputBuilder,
   TextInputStyle
@@ -36,7 +37,8 @@ const ids = {
     keyPro: '1495934849209602078',
     keyPrm: '1495934866729209967',
     relList: '1496407953949982790',
-    issues: '1498049762182565908'
+    issues: '1498049762182565908',
+    errorLogs: '1503919573102231632'
   },
   role: {
     aff: '1493707110020546731',
@@ -58,7 +60,8 @@ const cid = {
   infoBtn: 'ivi',
   issueStat: 'ist',
   issueOpen: 'iop',
-  issueDelete: 'idl'
+  issueDelete: 'idl',
+  errorCodeSelect: 'ecs'
 };
 
 const cfg = {
@@ -76,7 +79,7 @@ const cfg = {
   defaultBotServiceName: 'bot.service'
 };
 
-const ver = `SparxSolver 1.2.1`;
+const ver = `SparxSolver 1.0.2`;
 const ephFlags = 1 << 6;
 const issueStatusCache = {
   text: '',
@@ -132,9 +135,12 @@ const invInfo = [
       description: [
 `SparxSolver is an Open Source project (https://github.com/SparxSolver/SparxSolver).
 
-The only thing we store is the email address provided to us by Patreon, followed by your license key in an encrypted secret key on a cloudflare kv namespace.
+Keys are stored in both a CloudFlare encrypted secret KV namespace and a posgresql database listed on our secure VPS.
 
-We dont have access to any other info.`
+We only have access to the info you or Patreon gives us, we dont have access to any other info.
+We use your Patreon email to verify paid keys.
+
+We only collect data temporarily and do not share it or even view it at all, most of the process is automated and when we do use your data, we use it for financial reasons such as the paywall on the extension. If we didn't have this, anyone could use the extension and we wouldn't be able to profit from it.`
       ].join('\n'),
       color: 0x5865f2,
       image: 'https://cdn.discordapp.com/attachments/1491945158009425942/1498033415130185769/image.png?ex=69efafd6&is=69ee5e56&hm=c4ab39cc159571c50eba205f98f101347dbac168f37ec70122a36ede0aece337'
@@ -257,7 +263,15 @@ Plan details:
 - £1 / month
 - Cheap pricing
 - gpt-4o responses
+- 1000 tokens per request
 - Permanent role on Discord
+
+Grading:
+- Year 7 maths (perfect)
+- Year 8 maths (perfect)
+- Year 9 maths (great)
+- Year 10 maths (good)
+- Year 11 maths (bad)
 
 Buy the plan on [Patreon](${urls.patreonJoin}), then use the button below to get your key.
 If you're buying a key for someone else, use their email.`
@@ -269,8 +283,16 @@ Plan details:
 - £3 / month
 - Cheap pricing
 - gpt-5.4-mini responses
+- 2222 tokens per request
 - Faster responses
 - Permanent role on Discord
+
+Grading:
+- Year 7 maths (perfect)
+- Year 8 maths (perfect)
+- Year 9 maths (perfect)
+- Year 10 maths (great)
+- Year 11 maths (good)
 
 Buy the plan on [Patreon](${urls.patreonJoin}), then use the button below to get your key.
 If you're buying a key for someone else, use their email.`
@@ -282,9 +304,17 @@ Plan details:
 - £5 / month
 - Giveaways and special roles
 - gpt-5.4 responses
+- 666 tokens per request
 - Super fast responses
 - Early access to updates
 - Permanent role on Discord
+
+Grading:
+- Year 7 maths (perfect)
+- Year 8 maths (perfect)
+- Year 9 maths (perfect)
+- Year 10 maths (perfect)
+- Year 11 maths (great)
 
 Buy the plan on [Patreon](${urls.patreonJoin}), then use the button below to get your key.
 If you're buying a key for someone else, use their email.`
@@ -296,11 +326,18 @@ Plan details:
 - £10 / month
 - Giveaways and special roles
 - gpt-5.5 responses (highest quality)
+- 333 tokens per request
 - Instant responses
-- Instant access to early versions and updates
+- Early access to early versions and updates
 - Test developing versions
 - Requests and top priority treatment
-- Permanent role on Discord
+
+Grading:
+- Year 7 maths (perfect)
+- Year 8 maths (perfect)
+- Year 9 maths (perfect)
+- Year 10 maths (perfect)
+- Year 11 maths (perfect)
 
 Buy the plan on [Patreon](${urls.patreonJoin}), then use the button below to get your key.
 If you're buying a key for someone else, use their email.`
@@ -312,10 +349,10 @@ If you're buying a key for someone else, use their email.`
 
 function mkKeyMsg({ code, channelId, tierKey, tierName, buttonLabel, color }) {
   const imgByTier = {
-    affordable: 'https://cdn.discordapp.com/attachments/1491945158009425942/1498035805883732211/Untitled52_20260426195138.png?ex=69efb210&is=69ee6090&hm=600ffc992e90a1ff39b768040a232edf3460cf5f78a372ae249374ae52abd96e&',
-    basic: 'https://cdn.discordapp.com/attachments/1491945158009425942/1498035806424535231/Untitled53_20260426195210.png?ex=69efb210&is=69ee6090&hm=77a105f495b5f5774356910c43a2bdfd8866fdbe2e1fd10f828b3466a6bc9f79&',
-    pro: 'https://cdn.discordapp.com/attachments/1491945158009425942/1498035807099814069/Untitled54_20260426195224.png?ex=69efb210&is=69ee6090&hm=f9788663b24ac20f294f10fc6f8ffd4f3118a0cbc598e669e042469906e6476c&',
-    premium: 'https://cdn.discordapp.com/attachments/1491945158009425942/1498035807565643936/Untitled55_20260426195234.png?ex=69efb210&is=69ee6090&hm=aeb9561416eeac2172081d47e5dcbd9511b8d835a874e21f7b6ed27fb3fca620&'
+    affordable: 'https://cdn.discordapp.com/attachments/1491945158009425942/1503424735130943558/Screenshot_20260511_164405_Chrome.jpg?ex=6a034ce5&is=6a01fb65&hm=9f6bf9026aab3ca6ea1aea3da15a39ea809693ed450cfc6434d9e88d8949b974&',
+    basic: 'https://cdn.discordapp.com/attachments/1491945158009425942/1503424734774431754/Screenshot_20260511_164407_Chrome.jpg?ex=6a034ce5&is=6a01fb65&hm=09cd6389c4a9d8f4769f6941ad5df0eb9ad2d8f84c457bb9fe6247903d234399&',
+    pro: 'https://cdn.discordapp.com/attachments/1491945158009425942/1503424734438752317/Screenshot_20260511_164411_Chrome.jpg?ex=6a034ce4&is=6a01fb64&hm=a5b0c456d95bcaf0b5fdb22228566387780942df8dc5e5f2822ffe7340665342&',
+    premium: 'https://cdn.discordapp.com/attachments/1491945158009425942/1503424734103076964/Screenshot_20260511_164412_Chrome.jpg?ex=6a034ce4&is=6a01fb64&hm=7cbf1d43a5a7d2e3ab5b264cd2d547e25b80fafc956f4203cba1dfc4183029e0&'
   };
 
   return {
@@ -412,24 +449,103 @@ Use **Check All Status** for a private live status report.`
   ]
 };
 
-const msgRel = {
-  code: 'msg_rel',
-  kind: 'info',
-  channelId: ids.ch.relList,
+const errorCodeDefs = [
+  {
+    code: '1',
+    label: `Rare answer failure`,
+    summary: `The Worker got no usable answer text back from the AI response.`,
+    detail: `This is the "! PLEASE READ !" rare error. Ask the user for a screenshot of the question and the error message, then check Worker logs and the OpenAI response body for an empty choices/message payload. Do not ask them to spam Solve again because it can rate-limit their key.`
+  },
+  {
+    code: 'E001',
+    label: `Missing configuration`,
+    summary: `Required env vars or secrets are missing.`,
+    detail: `Check the bot .env and Worker dashboard secrets. Common missing values are TOKEN, LICENSE_WORKER_URL, LICENSE_WORKER_SECRET, OPENAI_API_KEY, and DISCORD_BOT_TOKEN.`
+  },
+  {
+    code: 'E002',
+    label: `Worker unavailable`,
+    summary: `The license Worker could not be reached.`,
+    detail: `Check Cloudflare Worker status, deployment health, worker URL, DNS, and whether the request timed out.`
+  },
+  {
+    code: 'E003',
+    label: `Invalid license key`,
+    summary: `The key format or stored license record is invalid.`,
+    detail: `Ask the user to copy the key again. If it still fails, check the license:<key> KV record.`
+  },
+  {
+    code: 'E004',
+    label: `Expired license`,
+    summary: `The license exists but its expires timestamp is in the past.`,
+    detail: `Confirm the Patreon membership or manually inspect the license record expiration.`
+  },
+  {
+    code: 'E005',
+    label: `Key lookup failed`,
+    summary: `The user email did not return an active matching key.`,
+    detail: `Check the exact Patreon email, the tier selected, and whether the Worker has synced the latest Patreon membership.`
+  },
+  {
+    code: 'E006',
+    label: `AI unavailable`,
+    summary: `OpenAI returned an error or timed out.`,
+    detail: `Check the Worker logs for upstream status, model availability, API key validity, and rate-limit messages.`
+  },
+  {
+    code: 'E007',
+    label: `Discord role sync`,
+    summary: `A Discord tier role could not be added or removed.`,
+    detail: `Check bot role hierarchy, Manage Roles permission, guild ID, and whether the member is still in the server.`
+  },
+  {
+    code: 'E008',
+    label: `Patreon sync failed`,
+    summary: `Patreon membership refresh failed.`,
+    detail: `Check Patreon API tokens, refresh-token state, campaign ID, and the Worker maintenance logs.`
+  },
+  {
+    code: 'E009',
+    label: `Screenshot rejected`,
+    summary: `The extension sent an invalid or too-large screenshot payload.`,
+    detail: `Ask the user to refresh Sparx and retry. If repeated, check extension capture output and MAX_SCREENSHOT_CHARS in the Worker.`
+  },
+  {
+    code: 'E010',
+    label: `Ticket cleanup failed`,
+    summary: `The bot could not delete an issue ticket or guarded message.`,
+    detail: `Check channel permissions, message age, channel topic metadata, and whether the channel still exists.`
+  }
+];
+
+const errorCodeByCode = new Map(errorCodeDefs.map(def => [def.code, def]));
+
+const msgErr = {
+  code: 'error_logs',
+  kind: 'error_log_panel',
+  channelId: ids.ch.errorLogs,
   embed: {
-    title: `SparxSolver - Changelogs`,
-    description: `The most recent changelog is SparxSolver 1.0.0 - Initial release (<t:1776449520:R>).`,
-    color: 0x5865f2
+    title: `SparxSolver - Error Logs`,
+    description: [
+`Use this channel for backend, bot, extension, and license-worker error logs.
+
+Select an error code below to see what it means and what to check first.`
+    ].join('\n'),
+    color: 0xef4444
   }
 };
 
+// Managed message refresh order. Keep this in the same channel order as the server layout.
 const msgAll = [
-  msgInv,
-  msgSet,
-  msgKeyAll,
-  ...msgKeys,
-  msgRel,
-  msgIss
+  msgInv,    // 1495957637865541662
+  msgSet,    // 1492211341274910911
+  msgKeyAll, // 1502685548739952880
+  msgKeys[0], // 1495934808184852500
+  msgKeys[1], // 1495934834672013484
+  msgKeys[2], // 1495934849209602078
+  msgKeys[3], // 1495934866729209967
+  msgIss,    // 1498049762182565908
+  msgErr     // 1503919573102231632
 ];
 
 const keyByCh = new Map([...msgKeys, msgKeyAll].map(def => [def.channelId, def]));
@@ -444,6 +560,14 @@ const bot = new Client({
     GatewayIntentBits.GuildMessages
   ]
 });
+
+function requireEnv(name) {
+  const value = String(process.env[name] || '').trim();
+  if (!value) {
+    throw new Error(`${name} is missing from .env`);
+  }
+  return value;
+}
 
 function mkEmb(embDef, extraBottom = '') {
   const desc = extraBottom
@@ -553,6 +677,35 @@ function mkIssDelRow() {
   );
 }
 
+function mkErrCodeRow() {
+  return new ActionRowBuilder().addComponents(
+    new StringSelectMenuBuilder()
+      .setCustomId(cid.errorCodeSelect)
+      .setPlaceholder(`Select an error code`)
+      .setMinValues(1)
+      .setMaxValues(1)
+      .addOptions(errorCodeDefs.map(def => ({
+        label: `${def.code} - ${def.label}`,
+        description: def.summary,
+        value: def.code
+      })))
+  );
+}
+
+function mkErrCodeEmbed(def) {
+  return mkEmb({
+    title: `${def.code} - ${def.label}`,
+    description: [
+`Meaning:
+${def.summary}
+
+What to check:
+${def.detail}`
+    ].join('\n'),
+    color: 0xef4444
+  });
+}
+
 function mkMsgPayload(msgDef, extraBottom = '') {
   const rows = [];
 
@@ -580,6 +733,10 @@ function mkMsgPayload(msgDef, extraBottom = '') {
 
   if (msgDef.kind === 'issue_panel') {
     rows.push(mkIssPanelRow(msgDef));
+  }
+
+  if (msgDef.kind === 'error_log_panel') {
+    rows.push(mkErrCodeRow());
   }
 
   if (msgDef.ticketButton) {
@@ -1450,6 +1607,11 @@ async function reqKey(email, tierKey, discordUserId) {
 }
 
 async function runStartupMaintenance() {
+  if (String(process.env.DISABLE_STARTUP_MAINTENANCE || '1').trim() !== '0') {
+    console.log('Startup maintenance skipped.');
+    return;
+  }
+
   try {
     const payload = await postWorkerJson('/maintenance/startup', {});
     if (payload?.started) {
@@ -1463,7 +1625,7 @@ async function runStartupMaintenance() {
     const categoryName = patreon.membersCategory?.name || 'not updated';
 
     console.log(
-      `Startup maintenance: ${categoryName}; roles checked ${roles.checked ?? 0}, removed ${roles.removed ?? 0}.`
+      `Startup maintenance: ${categoryName}; roles checked ${roles.checked ?? 0}, added ${roles.added ?? 0}, removed ${roles.removed ?? 0}.`
     );
   } catch (err) {
     logShortErr('Startup maintenance failed', err);
@@ -1511,11 +1673,47 @@ function isAllowedMessageAuthor(userId) {
   return okMsgAuthorIds.has(id) || id === bot.user?.id;
 }
 
-bot.once('clientReady', async () => {
+let readyHandled = false;
+let readyTimer = null;
+
+async function onReady() {
+  if (readyHandled) {
+    return;
+  }
+
+  readyHandled = true;
+  if (readyTimer) {
+    clearTimeout(readyTimer);
+    readyTimer = null;
+  }
+
   console.log(`Logged in as ${bot.user.tag}`);
-  await refAllMsgs();
-  await scheduleOpenIssueTickets();
-  await runStartupMaintenance();
+  try {
+    await refAllMsgs();
+    await scheduleOpenIssueTickets();
+    await runStartupMaintenance();
+  } catch (err) {
+    logShortErr('Startup task failed', err);
+  }
+}
+
+bot.once('clientReady', onReady);
+bot.once('ready', onReady);
+
+bot.on('warn', warning => {
+  console.warn(`Discord warning: ${compactText(warning, 240)}`);
+});
+
+bot.on('error', err => {
+  logShortErr('Discord client error', err);
+});
+
+process.on('unhandledRejection', err => {
+  logShortErr('Unhandled rejection', err);
+});
+
+process.on('uncaughtException', err => {
+  logShortErr('Uncaught exception', err);
 });
 
 bot.on('messageCreate', async message => {
@@ -1535,6 +1733,29 @@ bot.on('messageCreate', async message => {
 });
 
 bot.on('interactionCreate', async interaction => {
+  if (interaction.isStringSelectMenu()) {
+    if (interaction.customId !== cid.errorCodeSelect) {
+      return;
+    }
+
+    const errorCode = String(interaction.values?.[0] || '').trim();
+    const errorDef = errorCodeByCode.get(errorCode);
+
+    if (!errorDef) {
+      await interaction.reply({
+        content: `That error code is not available anymore.`,
+        flags: ephFlags
+      });
+      return;
+    }
+
+    await interaction.reply({
+      embeds: [mkErrCodeEmbed(errorDef)],
+      flags: ephFlags
+    });
+    return;
+  }
+
   if (interaction.isButton()) {
     if (interaction.customId === cid.setupBtn) {
       await interaction.reply({
@@ -1754,4 +1975,27 @@ bot.on('interactionCreate', async interaction => {
   }
 });
 
-bot.login(process.env.TOKEN);
+const token = requireEnv('TOKEN');
+console.log(`Starting SparxSolver Discord bot (${ver})...`);
+console.log(`TOKEN present: ${token.length} characters. Waiting for Discord ready event...`);
+
+readyTimer = setTimeout(() => {
+  if (!readyHandled) {
+    console.warn(
+      `Discord ready event has not fired after 30s. Check the bot token, network access to Discord, and enabled gateway intents in the Discord Developer Portal.`
+    );
+  }
+}, 30000);
+
+bot.login(token)
+  .then(() => {
+    console.log(`Discord login accepted; waiting for gateway ready.`);
+  })
+  .catch(err => {
+    if (readyTimer) {
+      clearTimeout(readyTimer);
+      readyTimer = null;
+    }
+    logShortErr('Discord login failed', err, 400);
+    process.exitCode = 1;
+  });
