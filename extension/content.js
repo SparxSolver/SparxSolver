@@ -6,9 +6,9 @@ let lastBookworkState = null;
 let pageRefreshTimer = null;
 let versionStatusRequested = false;
 let versionStatus = {
-    currentVersion: "1.2.1",
+    currentVersion: "1.3.0",
     latestVersion: null,
-    latestReleaseUrl: "https://github.com/SparxSolver/SparxSolver/releases/tag/SparxSolver",
+    latestReleaseUrl: "https://github.com/SparxSolver/SparxSolver/releases",
     updateAvailable: false,
     checked: false,
     checking: true,
@@ -65,9 +65,9 @@ function getHelpMenu() {
 }
 
 function getVersionStatusHTML() {
-    const latestVersion = escapeHtml(versionStatus.latestVersion || versionStatus.currentVersion || "1.2.1");
+    const latestVersion = escapeHtml(versionStatus.latestVersion || versionStatus.currentVersion || "1.3.0");
     const latestReleaseUrl = escapeAttribute(
-        versionStatus.latestReleaseUrl || "https://github.com/SparxSolver/SparxSolver/releases/tag/SparxSolver"
+        versionStatus.latestReleaseUrl || "https://github.com/SparxSolver/SparxSolver/releases"
     );
 
     if (versionStatus.updateAvailable) {
@@ -174,6 +174,15 @@ function getPageTextWithoutSolver() {
     if (cardText) text = text.replace(cardText, "");
     if (buttonText) text = text.replace(buttonText, "");
     return text.replace(/\s+/g, " ").trim().toLowerCase();
+}
+
+function getQuestionFingerprint() {
+    return getPageTextWithoutSolver()
+        .replace(/\b\d{1,3}(?:,\d{3})*\s*xp\b/g, "")
+        .replace(/\bprevious\b|\bwatch video\b|\bmenu\b/g, "")
+        .replace(/\s+/g, " ")
+        .trim()
+        .slice(0, 12000);
 }
 
 function isBookworkCheck() {
@@ -340,6 +349,7 @@ async function fireAction(action) {
     const request = {
         action,
         bookwork: isBookworkCheck(),
+        questionFingerprint: getQuestionFingerprint(),
     };
 
     if (request.bookwork) {
@@ -364,6 +374,7 @@ function startRequest(request, licenseKey) {
         action: request.action,
         licenseKey,
         bookwork: request.bookwork,
+        questionFingerprint: request.questionFingerprint,
     });
 }
 
@@ -430,7 +441,7 @@ chrome.runtime.onMessage.addListener((msg) => {
             chrome.storage.local.remove("licenseKey");
             pendingAction = null;
         }
-        createCard(`Warning: ${escapeHtml(msg.data)}`, { state: "error" });
+        createCard(`Warning: ${escapeHtml(msg.data).replace(/\n/g, "<br>")}`, { state: "error" });
     }
 });
 

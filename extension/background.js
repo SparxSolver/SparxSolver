@@ -1,18 +1,27 @@
 const WORKER_URL = "https://sparxsolver.qbqtcx.workers.dev";
 const REQUEST_TIMEOUT_MS = 30000;
+const EXTENSION_ERROR_CODES = {
+    NO_LICENSE_KEY: 15,
+    SERVER_ERROR: 16,
+    EXTENSION_RUNTIME_ERROR: 17,
+    INVALID_KEY_FORMAT: 18,
+    VALIDATION_NETWORK_ERROR: 19,
+};
+const VERSION_INFO_URL = "https://raw.githubusercontent.com/SparxSolver/SparxSolver/main/version.json";
 const DEFAULT_VERSION_INFO = {
-    version: "1.2.1",
-    releasesUrl: "https://github.com/SparxSolver/SparxSolver/releases/tag/SparxSolver",
-    releasesApiUrl: "https://api.github.com/repos/SparxSolver/SparxSolver/releases",
-    latestReleaseApiUrl: "https://api.github.com/repos/SparxSolver/SparxSolver/releases/latest",
+    extensionVersion: "1.3.0",
+    botVersion: null,
+    releasesUrl: "https://github.com/SparxSolver/SparxSolver/releases",
+    latestReleaseUrl: "https://github.com/SparxSolver/SparxSolver/releases",
 };
 
 let versionCheckPromise = null;
 let versionStatus = {
-    currentVersion: DEFAULT_VERSION_INFO.version,
+    currentVersion: DEFAULT_VERSION_INFO.extensionVersion,
     latestVersion: null,
+    botVersion: DEFAULT_VERSION_INFO.botVersion,
     releasesUrl: DEFAULT_VERSION_INFO.releasesUrl,
-    latestReleaseUrl: DEFAULT_VERSION_INFO.releasesUrl,
+    latestReleaseUrl: DEFAULT_VERSION_INFO.latestReleaseUrl,
     updateAvailable: false,
     checked: false,
     checking: false,
@@ -25,6 +34,12 @@ function normalizeLicenseKey(value) {
 
 function isValidLicenseKey(value) {
     return /^[A-Z0-9]{4}-[A-Z0-9]{4}$/.test(normalizeLicenseKey(value));
+}
+
+function formatErrorMessage(message, errorCode) {
+    const text = String(message || "Server error.").trim();
+    if (!errorCode || /error\s*code\s*:/i.test(text)) return text;
+    return `${text}\n\nError code: ${errorCode}`;
 }
 
 function normalizeVersion(value) {
@@ -45,34 +60,42 @@ function compareVersions(left, right) {
     return 0;
 }
 
-async function readVersionInfo() {
-    try {
-        const res = await fetch(chrome.runtime.getURL("version.json"), { cache: "no-store" });
-        if (!res.ok) return DEFAULT_VERSION_INFO;
-        const data = await res.json();
-        return {
-            ...DEFAULT_VERSION_INFO,
-            ...data,
-            version: data.version || chrome.runtime.getManifest().version || DEFAULT_VERSION_INFO.version,
-        };
-    } catch {
-        return {
-            ...DEFAULT_VERSION_INFO,
-            version: chrome.runtime.getManifest().version || DEFAULT_VERSION_INFO.version,
-        };
-    }
+function normalizeRemoteVersionInfo(data = {}) {
+    const extensionVersion = normalizeVersion(
+        data.extensionVersion ||
+        data.extension?.version ||
+        data.versions?.extension ||
+        data.version
+    );
+    const botVersion = normalizeVersion(
+        data.botVersion ||
+        data.bot?.version ||
+        data.versions?.bot
+    );
+
+    return {
+        ...DEFAULT_VERSION_INFO,
+        extensionVersion: extensionVersion || DEFAULT_VERSION_INFO.extensionVersion,
+        botVersion: botVersion || DEFAULT_VERSION_INFO.botVersion,
+        releasesUrl: String(data.releasesUrl || DEFAULT_VERSION_INFO.releasesUrl),
+        latestReleaseUrl: String(data.latestReleaseUrl || data.releasesUrl || DEFAULT_VERSION_INFO.latestReleaseUrl),
+    };
 }
 
-function pickLatestVersionedRelease(data) {
-    const releases = Array.isArray(data) ? data : [data];
+async function readVersionInfo() {
+    const fallbackVersion = chrome.runtime.getManifest().version || DEFAULT_VERSION_INFO.extensionVersion;
 
-    return releases
-        .map((release) => ({
-            release,
-            version: normalizeVersion(release?.tag_name || release?.name),
-        }))
-        .filter((item) => item.version)
-        .sort((left, right) => compareVersions(right.version, left.version))[0] || null;
+    try {
+        const res = await fetch(VERSION_INFO_URL, { cache: "no-store" });
+        if (!res.ok) throw new Error(`GitHub version.json returned ${res.status}`);
+        return normalizeRemoteVersionInfo(await res.json());
+    } catch (error) {
+        return {
+            ...DEFAULT_VERSION_INFO,
+            extensionVersion: fallbackVersion,
+            error: error?.message || "Could not check for updates.",
+        };
+    }
 }
 
 async function checkVersion() {
@@ -86,71 +109,24 @@ async function checkVersion() {
 
     versionCheckPromise = (async () => {
         const info = await readVersionInfo();
-        const currentVersion = normalizeVersion(info.version) || DEFAULT_VERSION_INFO.version;
+        const currentVersion = normalizeVersion(chrome.runtime.getManifest().version) || DEFAULT_VERSION_INFO.extensionVersion;
+        const latestVersion = normalizeVersion(info.extensionVersion) || "";
         const releasesUrl = info.releasesUrl || DEFAULT_VERSION_INFO.releasesUrl;
+        const latestReleaseUrl = info.latestReleaseUrl || releasesUrl;
 
-        try {
-            const res = await fetch(
-                info.releasesApiUrl || info.latestReleaseApiUrl || DEFAULT_VERSION_INFO.releasesApiUrl,
-                {
-                    cache: "no-store",
-                    headers: { Accept: "application/vnd.github+json" },
-                }
-            );
-            if (!res.ok) throw new Error(`GitHub returned ${res.status}`);
+        versionStatus = {
+            currentVersion,
+            latestVersion,
+            botVersion: info.botVersion || null,
+            releasesUrl,
+            latestReleaseUrl,
+            updateAvailable: Boolean(latestVersion && compareVersions(currentVersion, latestVersion) < 0),
+            checked: true,
+            checking: false,
+            error: info.error || null,
+        };
 
-            const data = await res.json();
-            const latest = pickLatestVersionedRelease(data);
-            const latestVersion = latest?.version || "";
-            const latestReleaseUrl = releasesUrl;
-
-            versionStatus = {
-                currentVersion,
-                latestVersion,
-                releasesUrl,
-                latestReleaseUrl,
-                updateAvailable: Boolean(latestVersion && compareVersions(currentVersion, latestVersion) < 0),
-                checked: true,
-                checking: false,
-                error: null,
-            };
-        } catch (err) {
-            try {
-                const fallbackRes = await fetch(info.latestReleaseApiUrl || DEFAULT_VERSION_INFO.latestReleaseApiUrl, {
-                    cache: "no-store",
-                    headers: { Accept: "application/vnd.github+json" },
-                });
-                if (!fallbackRes.ok) throw new Error(`GitHub returned ${fallbackRes.status}`);
-
-                const latest = pickLatestVersionedRelease(await fallbackRes.json());
-                const latestVersion = latest?.version || "";
-                const latestReleaseUrl = releasesUrl;
-
-                versionStatus = {
-                    currentVersion,
-                    latestVersion,
-                    releasesUrl,
-                    latestReleaseUrl,
-                    updateAvailable: Boolean(latestVersion && compareVersions(currentVersion, latestVersion) < 0),
-                    checked: true,
-                    checking: false,
-                    error: null,
-                };
-            } catch (fallbackErr) {
-                versionStatus = {
-                    currentVersion,
-                    latestVersion: null,
-                    releasesUrl,
-                    latestReleaseUrl: releasesUrl,
-                    updateAvailable: false,
-                    checked: true,
-                    checking: false,
-                    error: fallbackErr?.message || err?.message || "Could not check for updates.",
-                };
-            }
-        } finally {
-            versionCheckPromise = null;
-        }
+        versionCheckPromise = null;
 
         return versionStatus;
     })();
@@ -222,7 +198,7 @@ chrome.runtime.onMessage.addListener((msg, sender) => {
                 await sendToTab(tabId, {
                     action: "validate_result",
                     valid: false,
-                    reason: "Invalid key format.",
+                    reason: formatErrorMessage("Invalid key format.", EXTENSION_ERROR_CODES.INVALID_KEY_FORMAT),
                 });
                 return;
             }
@@ -238,13 +214,18 @@ chrome.runtime.onMessage.addListener((msg, sender) => {
                     key: data.key || licenseKey,
                     type: data.type,
                     label: data.label,
-                    reason: data.reason,
+                    reason: data.reason && !data.valid
+                        ? formatErrorMessage(data.reason, data.errorCode || EXTENSION_ERROR_CODES.SERVER_ERROR)
+                        : data.reason,
                 });
             } catch {
                 await sendToTab(tabId, {
                     action: "validate_result",
                     valid: false,
-                    reason: "Could not reach server - check your connection.",
+                    reason: formatErrorMessage(
+                        "Could not reach server - check your connection.",
+                        EXTENSION_ERROR_CODES.VALIDATION_NETWORK_ERROR
+                    ),
                 });
             }
             return;
@@ -254,7 +235,12 @@ chrome.runtime.onMessage.addListener((msg, sender) => {
             try {
                 const licenseKey = normalizeLicenseKey(msg.licenseKey);
                 if (!isValidLicenseKey(licenseKey)) {
-                    await sendToTab(tabId, { action: "error", data: "No license key found.", authError: true });
+                    await sendToTab(tabId, {
+                        action: "error",
+                        data: formatErrorMessage("No license key found.", EXTENSION_ERROR_CODES.NO_LICENSE_KEY),
+                        errorCode: EXTENSION_ERROR_CODES.NO_LICENSE_KEY,
+                        authError: true,
+                    });
                     return;
                 }
 
@@ -266,12 +252,14 @@ chrome.runtime.onMessage.addListener((msg, sender) => {
                     screenshot,
                     action: msg.action,
                     bookwork: Boolean(msg.bookwork),
+                    questionFingerprint: msg.questionFingerprint,
                 });
 
                 if (res.status === 401) {
                     await sendToTab(tab.id, {
                         action: "error",
-                        data: data.error || "License expired.",
+                        data: formatErrorMessage(data.error || "License expired.", data.errorCode),
+                        errorCode: data.errorCode,
                         authError: true,
                     });
                     return;
@@ -280,7 +268,11 @@ chrome.runtime.onMessage.addListener((msg, sender) => {
                 if (!res.ok || data.error) {
                     await sendToTab(tab.id, {
                         action: "error",
-                        data: data.error || "Server error.",
+                        data: formatErrorMessage(
+                            data.error || "Server error.",
+                            data.errorCode || EXTENSION_ERROR_CODES.SERVER_ERROR
+                        ),
+                        errorCode: data.errorCode || EXTENSION_ERROR_CODES.SERVER_ERROR,
                     });
                     return;
                 }
@@ -294,7 +286,11 @@ chrome.runtime.onMessage.addListener((msg, sender) => {
                     },
                 });
             } catch (err) {
-                await sendToTab(tabId, { action: "error", data: err.message });
+                await sendToTab(tabId, {
+                    action: "error",
+                    data: formatErrorMessage(err.message, EXTENSION_ERROR_CODES.EXTENSION_RUNTIME_ERROR),
+                    errorCode: EXTENSION_ERROR_CODES.EXTENSION_RUNTIME_ERROR,
+                });
             }
         }
     })();
