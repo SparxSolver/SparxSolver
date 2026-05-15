@@ -9,7 +9,7 @@ const EXTENSION_ERROR_CODES = {
 };
 const VERSION_INFO_URL = "https://raw.githubusercontent.com/SparxSolver/SparxSolver/main/version.json";
 const DEFAULT_VERSION_INFO = {
-    extensionVersion: "1.3.0",
+    extensionVersion: "1.3.2",
     botVersion: null,
     releasesUrl: "https://github.com/SparxSolver/SparxSolver/releases",
     latestReleaseUrl: "https://github.com/SparxSolver/SparxSolver/releases",

@@ -6,7 +6,7 @@ let lastBookworkState = null;
 let pageRefreshTimer = null;
 let versionStatusRequested = false;
 let versionStatus = {
-    currentVersion: "1.3.0",
+    currentVersion: "1.3.2",
     latestVersion: null,
     latestReleaseUrl: "https://github.com/SparxSolver/SparxSolver/releases",
     updateAvailable: false,
@@ -65,7 +65,7 @@ function getHelpMenu() {
 }
 
 function getVersionStatusHTML() {
-    const latestVersion = escapeHtml(versionStatus.latestVersion || versionStatus.currentVersion || "1.3.0");
+    const latestVersion = escapeHtml(versionStatus.latestVersion || versionStatus.currentVersion || "1.3.2");
     const latestReleaseUrl = escapeAttribute(
         versionStatus.latestReleaseUrl || "https://github.com/SparxSolver/SparxSolver/releases"
     );
