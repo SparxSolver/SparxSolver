@@ -1,6 +1,8 @@
 require('dotenv').config({ quiet: true });
 
+const fs = require('fs');
 const os = require('os');
+const path = require('path');
 const { execFile } = require('child_process');
 const { promisify } = require('util');
 
@@ -79,7 +81,55 @@ const cfg = {
   defaultBotServiceName: 'bot.service'
 };
 
-const ver = `SparxSolver 1.3.1`;
+function getLocalVersionFilePaths() {
+  return [
+    process.env.SPARXSOLVER_VERSION_FILE,
+    path.resolve(__dirname, '..', 'github-push', 'version.json'),
+    path.resolve(__dirname, '..', 'version.json'),
+    path.resolve(__dirname, 'version.json')
+  ].filter(Boolean);
+}
+
+function getVersionText(value) {
+  const text = String(value || '').trim();
+  return /^\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?$/.test(text) ? text : '';
+}
+
+function getBotVersionFromJson(data) {
+  return (
+    getVersionText(data?.bot?.version) ||
+    getVersionText(data?.Bot?.version) ||
+    getVersionText(data?.BOT?.version) ||
+    getVersionText(data?.versions?.bot) ||
+    getVersionText(data?.versions?.Bot) ||
+    getVersionText(data?.botVersion)
+  );
+}
+
+function readLocalBotVersion() {
+  for (const filePath of getLocalVersionFilePaths()) {
+    try {
+      if (!fs.existsSync(filePath)) {
+        continue;
+      }
+
+      const version = getBotVersionFromJson(JSON.parse(fs.readFileSync(filePath, 'utf8')));
+      if (version) {
+        return version;
+      }
+    } catch (err) {
+      console.warn(`Could not read bot version from ${filePath}: ${err.message}`);
+    }
+  }
+
+  try {
+    return getVersionText(require('./package.json')?.version) || '0.0.0';
+  } catch {
+    return '0.0.0';
+  }
+}
+
+const ver = `SparxSolver ${readLocalBotVersion()}`;
 const ephFlags = 1 << 6;
 const issueStatusCache = {
   text: '',
@@ -452,9 +502,9 @@ Use **Check All Status** for a private live status report.`
 const errorCodeDefs = [
   {
     code: '1',
-    label: `Rare answer failure`,
-    summary: `The Worker got no usable answer text back from the AI response.`,
-    detail: `This is the "! PLEASE READ !" rare error. Ask the user for a screenshot of the question and the error message, then check Worker logs and the OpenAI response body for an empty choices/message payload. Do not ask them to spam Solve again because it can rate-limit their key.`
+    label: `Empty answer recovery`,
+    summary: `Legacy code for an empty AI response. The Worker now retries and returns a readable fallback instead of surfacing this during normal operation.`,
+    detail: `If this ever appears again, check Worker logs for all OpenAI recovery attempts, the response finish_reason, token usage, and whether every retry returned no text. Ask for a screenshot only if the fallback says the question was unreadable.`
   },
   {
     code: 'E001',
@@ -528,6 +578,9 @@ const msgErr = {
     title: `SparxSolver - Error Logs`,
     description: [
 `Use this channel for backend, bot, extension, and license-worker error logs.
+
+Available error codes:
+${errorCodeDefs.map(def => `- \`${def.code}\` ${def.label}`).join('\n')}
 
 Select an error code below to see what it means and what to check first.`
     ].join('\n'),
@@ -685,8 +738,8 @@ function mkErrCodeRow() {
       .setMinValues(1)
       .setMaxValues(1)
       .addOptions(errorCodeDefs.map(def => ({
-        label: `${def.code} - ${def.label}`,
-        description: def.summary,
+        label: `Code ${def.code}: ${def.label}`.slice(0, 100),
+        description: def.summary.slice(0, 100),
         value: def.code
       })))
   );
@@ -694,9 +747,11 @@ function mkErrCodeRow() {
 
 function mkErrCodeEmbed(def) {
   return mkEmb({
-    title: `${def.code} - ${def.label}`,
+    title: `Error code ${def.code}: ${def.label}`,
     description: [
-`Meaning:
+`Error code: \`${def.code}\`
+
+Meaning:
 ${def.summary}
 
 What to check:
