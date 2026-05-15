@@ -453,11 +453,17 @@ function styleLikeSparx(btn, baseBtn) {
     }
 }
 
+function getButtonText(btn) {
+    return (btn.innerText || btn.textContent || "")
+        .replace(/\s+/g, " ")
+        .trim()
+        .toLowerCase();
+}
+
 function findAnswerButton() {
     for (const btn of document.querySelectorAll("button")) {
         if (btn.id === "helpBtn" || btn.id === "solveBtn") continue;
-        const text = (btn.innerText || "").toLowerCase().trim();
-        if (text.includes("answer") || text.includes("submit") || text.includes("check")) return btn;
+        if (getButtonText(btn) === "answer") return btn;
     }
     return null;
 }
@@ -483,7 +489,17 @@ function injectButton() {
     }
 
     const answerBtn = findAnswerButton();
-    if (!answerBtn || document.querySelector("#solveBtn")) return;
+    const existingWrapper = document.getElementById(BUTTON_WRAPPER_ID);
+
+    if (!answerBtn) {
+        removeInjectedButtons();
+        return;
+    }
+
+    if (existingWrapper) {
+        if (existingWrapper.contains(answerBtn) && document.querySelector("#solveBtn")) return;
+        removeInjectedButtons();
+    }
 
     const wrapper = document.createElement("div");
     wrapper.id = BUTTON_WRAPPER_ID;
