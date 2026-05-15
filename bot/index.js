@@ -81,6 +81,9 @@ const cfg = {
   defaultBotServiceName: 'bot.service'
 };
 
+const versionInfoUrl = process.env.SPARXSOLVER_VERSION_URL ||
+  'https://raw.githubusercontent.com/SparxSolver/SparxSolver/refs/heads/main/version.json';
+
 function getLocalVersionFilePaths() {
   return [
     process.env.SPARXSOLVER_VERSION_FILE,
@@ -129,7 +132,47 @@ function readLocalBotVersion() {
   }
 }
 
-const ver = `SparxSolver ${readLocalBotVersion()}`;
+async function readRemoteBotVersion() {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), cfg.httpTimeoutMs);
+
+  try {
+    const response = await fetch(versionInfoUrl, {
+      cache: 'no-store',
+      headers: {
+        Accept: 'application/json'
+      },
+      signal: ctrl.signal
+    });
+
+    if (!response.ok) {
+      throw new Error(`GitHub version.json returned ${response.status}.`);
+    }
+
+    const version = getBotVersionFromJson(await response.json());
+    if (!version) {
+      throw new Error('GitHub version.json does not contain a valid bot version.');
+    }
+
+    return version;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function refreshBotVersion() {
+  try {
+    const version = await readRemoteBotVersion();
+    ver = `SparxSolver ${version}`;
+    console.log(`Bot version loaded from ${versionInfoUrl}: ${ver}`);
+  } catch (err) {
+    logShortErr(`Failed to load remote bot version from ${versionInfoUrl}`, err);
+    ver = `SparxSolver ${readLocalBotVersion()}`;
+    console.log(`Using fallback bot version: ${ver}`);
+  }
+}
+
+let ver = `SparxSolver ${readLocalBotVersion()}`;
 const ephFlags = 1 << 6;
 const issueStatusCache = {
   text: '',
@@ -502,69 +545,81 @@ Use **Check All Status** for a private live status report.`
 const errorCodeDefs = [
   {
     code: '1',
-    label: `Empty answer recovery`,
-    summary: `Legacy code for an empty AI response. The Worker now retries and returns a readable fallback instead of surfacing this during normal operation.`,
-    detail: `If this ever appears again, check Worker logs for all OpenAI recovery attempts, the response finish_reason, token usage, and whether every retry returned no text. Ask for a screenshot only if the fallback says the question was unreadable.`
+    label: `! PLEASE READ ! rare empty answer`,
+    summary: `OpenAI returned no visible answer after the Worker retry attempts, so SparxSolver showed its readable fallback message.`,
+    detail: `Check Worker logs for "OpenAI returned empty answer text", the recovery attempt model, finish_reason, token usage, and whether every retry returned no text. Ask for a screenshot only if the fallback says the question was unreadable.`
   },
   {
-    code: 'E001',
-    label: `Missing configuration`,
-    summary: `Required env vars or secrets are missing.`,
-    detail: `Check the bot .env and Worker dashboard secrets. Common missing values are TOKEN, LICENSE_WORKER_URL, LICENSE_WORKER_SECRET, OPENAI_API_KEY, and DISCORD_BOT_TOKEN.`
+    code: '2',
+    label: `Invalid action`,
+    summary: `The extension sent an action the Worker does not support.`,
+    detail: `Update the extension, then check the request action value. Supported solve actions are the ones accepted by the Worker.`
   },
   {
-    code: 'E002',
-    label: `Worker unavailable`,
-    summary: `The license Worker could not be reached.`,
-    detail: `Check Cloudflare Worker status, deployment health, worker URL, DNS, and whether the request timed out.`
+    code: '3',
+    label: `Invalid screenshot`,
+    summary: `The screenshot payload was missing, malformed, or too large.`,
+    detail: `Ask the user to refresh Sparx and try again. If repeated, check the extension capture output and MAX_SCREENSHOT_CHARS in the Worker.`
   },
   {
-    code: 'E003',
-    label: `Invalid license key`,
-    summary: `The key format or stored license record is invalid.`,
+    code: '4',
+    label: `Bookwork help blocked`,
+    summary: `The user tried to use Help on a bookwork check, which the Worker blocks.`,
+    detail: `Tell the user to use the answer-only bookwork flow instead of Help.`
+  },
+  {
+    code: '5',
+    label: `Invalid license`,
+    summary: `The license key was not found or is not a valid stored license.`,
     detail: `Ask the user to copy the key again. If it still fails, check the license:<key> KV record.`
   },
   {
-    code: 'E004',
+    code: '6',
     label: `Expired license`,
     summary: `The license exists but its expires timestamp is in the past.`,
     detail: `Confirm the Patreon membership or manually inspect the license record expiration.`
   },
   {
-    code: 'E005',
-    label: `Key lookup failed`,
-    summary: `The user email did not return an active matching key.`,
-    detail: `Check the exact Patreon email, the tier selected, and whether the Worker has synced the latest Patreon membership.`
+    code: '7',
+    label: `AI not configured`,
+    summary: `The Worker does not have an OpenAI API key configured.`,
+    detail: `Check the Worker dashboard secrets and make sure OPENAI_API_KEY is set on the deployed Worker.`
   },
   {
-    code: 'E006',
-    label: `AI unavailable`,
-    summary: `OpenAI returned an error or timed out.`,
-    detail: `Check the Worker logs for upstream status, model availability, API key validity, and rate-limit messages.`
+    code: '8',
+    label: `Same question rate limit`,
+    summary: `The same question was requested too soon after the previous request.`,
+    detail: `Tell the user to wait for the shown retry time or move to a different question.`
   },
   {
-    code: 'E007',
-    label: `Discord role sync`,
-    summary: `A Discord tier role could not be added or removed.`,
-    detail: `Check bot role hierarchy, Manage Roles permission, guild ID, and whether the member is still in the server.`
+    code: '9',
+    label: `AI unreachable`,
+    summary: `The Worker could not reach OpenAI.`,
+    detail: `Check Cloudflare Worker egress, OpenAI status, DNS, and request timeout logs.`
   },
   {
-    code: 'E008',
-    label: `Patreon sync failed`,
-    summary: `Patreon membership refresh failed.`,
-    detail: `Check Patreon API tokens, refresh-token state, campaign ID, and the Worker maintenance logs.`
+    code: '10',
+    label: `AI model unavailable`,
+    summary: `The selected plan model is not available to the OpenAI key right now.`,
+    detail: `Check model access for the configured OpenAI project and whether the model name in the Worker is still valid.`
   },
   {
-    code: 'E009',
-    label: `Screenshot rejected`,
-    summary: `The extension sent an invalid or too-large screenshot payload.`,
-    detail: `Ask the user to refresh Sparx and retry. If repeated, check extension capture output and MAX_SCREENSHOT_CHARS in the Worker.`
+    code: '11',
+    label: `AI rate limited`,
+    summary: `OpenAI returned a rate-limit response for the current request.`,
+    detail: `Check OpenAI project limits, usage, and retry timing before asking the user to try again.`
   },
   {
-    code: 'E010',
-    label: `Ticket cleanup failed`,
-    summary: `The bot could not delete an issue ticket or guarded message.`,
-    detail: `Check channel permissions, message age, channel topic metadata, and whether the channel still exists.`
+    code: '12',
+    label: `AI auth failed`,
+    summary: `OpenAI rejected the configured API key.`,
+    detail: `Check that OPENAI_API_KEY is valid, active, and belongs to the intended OpenAI project.`
+  },
+  {
+    code: '13',
+    label: `AI provider error`,
+    summary: `OpenAI returned an upstream error that did not match a more specific code.`,
+    detail: `Check the Worker log message for the upstream status and provider error text.`
   }
 ];
 
@@ -1744,6 +1799,7 @@ async function onReady() {
 
   console.log(`Logged in as ${bot.user.tag}`);
   try {
+    await refreshBotVersion();
     await refAllMsgs();
     await scheduleOpenIssueTickets();
     await runStartupMaintenance();
