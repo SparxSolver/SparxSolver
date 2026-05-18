@@ -19,7 +19,7 @@ const CARD_ID = "ssSolverCard";
 const BUTTON_WRAPPER_ID = "ssButtonWrapper";
 
 const footerMessages = [
-    "SparxSolver doesn't share or store question data. <a href='https://discord.com/channels/1486793780391575693/1489369223711948961' target='_blank' style='color:#3b82f6;text-decoration:none;'>[Privacy Policy]</a>",
+    "Screenshots are sent to SparxSolver to generate answer/help responses and are not stored by the Worker. <a href='https://discord.com/channels/1486793780391575693/1489369223711948961' target='_blank' style='color:#3b82f6;text-decoration:none;'>[Privacy Policy]</a>",
     "SparxSolver is an open source project. <a href='https://github.com/sparxsolver/sparxsolver' target='_blank' style='color:#3b82f6;text-decoration:none;'>[Check the GitHub]</a>",
     "SparxSolver is motivated by donations. <a href='https://discord.com/channels/1486793780391575693/1489363061419802775' target='_blank' style='color:#3b82f6;text-decoration:none;'>[Support Us]</a>",
     "Answer wrong? Report it to our Discord so we can improve. <a href='https://discord.com/channels/1486793780391575693/1493699817271070730' target='_blank' style='color:#3b82f6;text-decoration:none;'>[Important Info]</a>",
@@ -57,9 +57,9 @@ function getCard() {
 
 function getHelpMenu() {
     return `
-        <b>How to use:</b><br>
-        - Press <b>Solve</b> to get the answer<br>
-        - Press <b>Help</b> for the explanation<br><br>
+        <b>Answer and help modes:</b><br>
+        - <b>Solve</b> gives a compact answer<br>
+        - <b>Help</b> explains the method without the final answer<br><br>
         Drag the card anywhere to move it.
     `;
 }
@@ -160,6 +160,15 @@ function buildAnswerHTML(answer, label, options = {}) {
                 "
             >[Change]</span>
         </div>
+    `;
+}
+
+function buildErrorHTML(message, errorCode) {
+    const display = errorCode ? `Error code: ${errorCode}` : String(message || "Error code: unknown");
+    const safeMessage = escapeHtml(display).replace(/\n/g, "<br>");
+
+    return `
+        <div style="line-height:1.45;">${safeMessage}</div>
     `;
 }
 
@@ -369,7 +378,7 @@ async function fireAction(action) {
 function startRequest(request, licenseKey) {
     solving = true;
     activeRequest = request;
-    createCard(request.action === "capture_and_help" ? "Thinking..." : "Solving...", { state: "loading" });
+    createCard(request.action === "capture_and_help" ? "Preparing help..." : "Preparing answer...", { state: "loading" });
     chrome.runtime.sendMessage({
         action: request.action,
         licenseKey,
@@ -441,7 +450,7 @@ chrome.runtime.onMessage.addListener((msg) => {
             chrome.storage.local.remove("licenseKey");
             pendingAction = null;
         }
-        createCard(`Warning: ${escapeHtml(msg.data).replace(/\n/g, "<br>")}`, { state: "error" });
+        createCard(buildErrorHTML(msg.data, msg.errorCode), { state: "error" });
     }
 });
 

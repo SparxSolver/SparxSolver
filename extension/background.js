@@ -1,6 +1,13 @@
 const WORKER_URL = "https://sparxsolver.qbqtcx.workers.dev";
 const REQUEST_TIMEOUT_MS = 30000;
+const LOCAL_ANSWER_CACHE_TTL_MS = 2 * 60 * 1000;
+const LOCAL_ANSWER_CACHE_PREFIX = "sameQuestionAnswerCache:";
+const LOCAL_RATE_LIMIT_PREFIX = "localRateLimit:";
+const LOCAL_SOLVE_RATE_LIMIT = { limit: 12, windowMs: 60 * 1000 };
+const LOCAL_SAME_QUESTION_RATE_LIMIT = { limit: 1, windowMs: 60 * 1000 };
 const EXTENSION_ERROR_CODES = {
+    SAME_QUESTION_RATE_LIMITED: 8,
+    CAPTURE_QUOTA_ERROR: 14,
     NO_LICENSE_KEY: 15,
     SERVER_ERROR: 16,
     EXTENSION_RUNTIME_ERROR: 17,
@@ -37,9 +44,21 @@ function isValidLicenseKey(value) {
 }
 
 function formatErrorMessage(message, errorCode) {
-    const text = String(message || "Server error.").trim();
-    if (!errorCode || /error\s*code\s*:/i.test(text)) return text;
-    return `${text}\n\nError code: ${errorCode}`;
+    const code = Number(errorCode);
+    return Number.isFinite(code) ? `Error code: ${code}` : "Error code: unknown";
+}
+
+function formatWorkerError(res, data = {}, fallbackMessage = "Server error.", fallbackCode = EXTENSION_ERROR_CODES.SERVER_ERROR) {
+    return formatErrorMessage(fallbackMessage, data.errorCode || fallbackCode);
+}
+
+function getExtensionErrorCode(error) {
+    const message = String(error?.message || error || "");
+    if (/MAX_CAPTURE_VISIBLE_TAB_CALLS_PER_SECOND|captureVisibleTab/i.test(message)) {
+        return EXTENSION_ERROR_CODES.CAPTURE_QUOTA_ERROR;
+    }
+
+    return EXTENSION_ERROR_CODES.EXTENSION_RUNTIME_ERROR;
 }
 
 function normalizeVersion(value) {
@@ -134,6 +153,152 @@ async function checkVersion() {
     return await versionCheckPromise;
 }
 
+function createRequestId() {
+    if (globalThis.crypto?.randomUUID) {
+        return globalThis.crypto.randomUUID();
+    }
+
+    const bytes = new Uint8Array(16);
+    globalThis.crypto.getRandomValues(bytes);
+    return Array.from(bytes, byte => byte.toString(16).padStart(2, "0")).join("");
+}
+
+function buildWorkerHeaders() {
+    return {
+        "Content-Type": "application/json",
+        "X-Client-Version": chrome.runtime.getManifest().version || DEFAULT_VERSION_INFO.extensionVersion,
+        "X-Request-Id": createRequestId(),
+    };
+}
+
+function storageGet(keys) {
+    return new Promise(resolve => chrome.storage.local.get(keys, resolve));
+}
+
+function storageSet(values) {
+    return new Promise(resolve => chrome.storage.local.set(values, resolve));
+}
+
+function storageRemove(keys) {
+    return new Promise(resolve => chrome.storage.local.remove(keys, resolve));
+}
+
+async function sha256Hex(text) {
+    const bytes = new TextEncoder().encode(String(text || ""));
+    const hash = await crypto.subtle.digest("SHA-256", bytes);
+    return Array.from(new Uint8Array(hash), byte => byte.toString(16).padStart(2, "0")).join("");
+}
+
+function normalizeQuestionFingerprint(value) {
+    return String(value || "")
+        .normalize("NFKC")
+        .toLowerCase()
+        .replace(/\bbook\s*work\s*code\s*:\s*[a-z0-9-]+/g, "")
+        .replace(/\bbookwork\s*code\s*:\s*[a-z0-9-]+/g, "")
+        .replace(/\s+/g, " ")
+        .trim()
+        .slice(0, 12000);
+}
+
+async function getLocalAnswerCacheKey({ licenseKey, action, bookwork, questionFingerprint }) {
+    const material = JSON.stringify({
+        licenseKey: normalizeLicenseKey(licenseKey),
+        action: String(action || ""),
+        bookwork: Boolean(bookwork),
+        questionFingerprint: normalizeQuestionFingerprint(questionFingerprint),
+    });
+
+    return `${LOCAL_ANSWER_CACHE_PREFIX}${await sha256Hex(material)}`;
+}
+
+async function getLocalAnswerCache(request, licenseKey) {
+    const cacheKey = await getLocalAnswerCacheKey({ ...request, licenseKey });
+    const stored = await storageGet(cacheKey);
+    const record = stored?.[cacheKey];
+    const now = Date.now();
+
+    if (!record || typeof record !== "object" || Number(record.expiresAt) <= now || !record.answer) {
+        if (record) await storageRemove(cacheKey);
+        return { cacheKey, cached: null };
+    }
+
+    return {
+        cacheKey,
+        cached: {
+            answer: String(record.answer || ""),
+            label: String(record.label || ""),
+            bookwork: Boolean(record.bookwork),
+        },
+    };
+}
+
+async function putLocalAnswerCache(cacheKey, data = {}) {
+    if (!cacheKey || !data.answer) return;
+
+    await storageSet({
+        [cacheKey]: {
+            answer: String(data.answer || ""),
+            label: String(data.label || ""),
+            bookwork: Boolean(data.bookwork),
+            expiresAt: Date.now() + LOCAL_ANSWER_CACHE_TTL_MS,
+        },
+    });
+}
+
+async function getLocalRateLimitKey(scope, material) {
+    return `${LOCAL_RATE_LIMIT_PREFIX}${scope}:${await sha256Hex(material)}`;
+}
+
+async function consumeLocalRateLimit(scope, material, { limit, windowMs }) {
+    const key = await getLocalRateLimitKey(scope, material);
+    const stored = await storageGet(key);
+    const record = stored?.[key];
+    const now = Date.now();
+    const resetAt = Number(record?.resetAt) || 0;
+    const count = resetAt > now ? Math.max(0, Number(record?.count) || 0) : 0;
+
+    if (resetAt > now && count >= limit) {
+        return {
+            allowed: false,
+            retryAfterMs: resetAt - now,
+        };
+    }
+
+    await storageSet({
+        [key]: {
+            count: count + 1,
+            resetAt: resetAt > now ? resetAt : now + windowMs,
+        },
+    });
+
+    return { allowed: true };
+}
+
+async function checkLocalSolveRateLimits(msg, licenseKey) {
+    const action = String(msg.action || "");
+    const bookwork = Boolean(msg.bookwork);
+    const questionFingerprint = normalizeQuestionFingerprint(msg.questionFingerprint);
+
+    const solveLimit = await consumeLocalRateLimit(
+        "solve",
+        JSON.stringify({ licenseKey: normalizeLicenseKey(licenseKey), action }),
+        LOCAL_SOLVE_RATE_LIMIT
+    );
+    if (!solveLimit.allowed) {
+        return solveLimit;
+    }
+
+    if (!questionFingerprint) {
+        return { allowed: true };
+    }
+
+    return await consumeLocalRateLimit(
+        "sameQuestion",
+        JSON.stringify({ licenseKey: normalizeLicenseKey(licenseKey), action, bookwork, questionFingerprint }),
+        LOCAL_SAME_QUESTION_RATE_LIMIT
+    );
+}
+
 async function postWorkerJson(path, body) {
     const ctrl = new AbortController();
     const timer = setTimeout(() => ctrl.abort(), REQUEST_TIMEOUT_MS);
@@ -141,7 +306,7 @@ async function postWorkerJson(path, body) {
     try {
         const res = await fetch(`${WORKER_URL}${path}`, {
             method: "POST",
-            headers: { "Content-Type": "application/json" },
+            headers: buildWorkerHeaders(),
             body: JSON.stringify(body),
             signal: ctrl.signal,
         });
@@ -204,9 +369,18 @@ chrome.runtime.onMessage.addListener((msg, sender) => {
             }
 
             try {
-                const { data } = await postWorkerJsonWithFallback("/check-access", "/validate", {
+                const { res, data } = await postWorkerJsonWithFallback("/check-access", "/validate", {
                     key: licenseKey,
                 });
+
+                if (!res.ok || typeof data.valid !== "boolean") {
+                    await sendToTab(tabId, {
+                        action: "validate_result",
+                        valid: false,
+                        reason: formatWorkerError(res, data, "Could not validate this key."),
+                    });
+                    return;
+                }
 
                 await sendToTab(tabId, {
                     action: "validate_result",
@@ -245,6 +419,28 @@ chrome.runtime.onMessage.addListener((msg, sender) => {
                 }
 
                 const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+                const localCache = await getLocalAnswerCache(msg, licenseKey);
+                if (localCache.cached) {
+                    await sendToTab(tab.id, {
+                        action: "answer",
+                        data: {
+                            ...localCache.cached,
+                            cached: true,
+                        },
+                    });
+                    return;
+                }
+
+                const rateLimit = await checkLocalSolveRateLimits(msg, licenseKey);
+                if (!rateLimit.allowed) {
+                    await sendToTab(tab.id, {
+                        action: "error",
+                        data: formatErrorMessage("Rate limited.", EXTENSION_ERROR_CODES.SAME_QUESTION_RATE_LIMITED),
+                        errorCode: EXTENSION_ERROR_CODES.SAME_QUESTION_RATE_LIMITED,
+                    });
+                    return;
+                }
+
                 const screenshot = await chrome.tabs.captureVisibleTab(tab.windowId, { format: "png" });
 
                 const { res, data } = await postWorkerJsonWithFallback("/ask-gpt", "/solve", {
@@ -268,10 +464,7 @@ chrome.runtime.onMessage.addListener((msg, sender) => {
                 if (!res.ok || data.error) {
                     await sendToTab(tab.id, {
                         action: "error",
-                        data: formatErrorMessage(
-                            data.error || "Server error.",
-                            data.errorCode || EXTENSION_ERROR_CODES.SERVER_ERROR
-                        ),
+                        data: formatWorkerError(res, data),
                         errorCode: data.errorCode || EXTENSION_ERROR_CODES.SERVER_ERROR,
                     });
                     return;
@@ -285,11 +478,17 @@ chrome.runtime.onMessage.addListener((msg, sender) => {
                         bookwork: Boolean(data.bookwork || msg.bookwork),
                     },
                 });
+                await putLocalAnswerCache(localCache.cacheKey, {
+                    answer: data.answer,
+                    label: data.label,
+                    bookwork: Boolean(data.bookwork || msg.bookwork),
+                });
             } catch (err) {
+                const errorCode = getExtensionErrorCode(err);
                 await sendToTab(tabId, {
                     action: "error",
-                    data: formatErrorMessage(err.message, EXTENSION_ERROR_CODES.EXTENSION_RUNTIME_ERROR),
-                    errorCode: EXTENSION_ERROR_CODES.EXTENSION_RUNTIME_ERROR,
+                    data: formatErrorMessage(err.message, errorCode),
+                    errorCode,
                 });
             }
         }
