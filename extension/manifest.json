@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "SparxSolver",
   "description": "Sparx Maths, Unlocked.",
-  "version": "1.3.2",
+  "version": "1.4.1",
   "permissions": [
     "storage",
     "tabs",
