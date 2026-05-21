@@ -82,6 +82,8 @@ const PLANS = [
 ];
 
 const PLAN_BY_KEY = new Map(PLANS.map(plan => [plan.key, plan]));
+const PLAN_PRIORITY = ['premium', 'pro', 'basic', 'affordable'];
+const PLAN_RANK = new Map(PLAN_PRIORITY.map((planKey, index) => [planKey, index]));
 
 const buyEmbedTemplate = {
   title: 'Buy SparxSolver',
@@ -94,16 +96,16 @@ const buyEmbedTemplate = {
 
 ╭─<@&${PLAN_ROLE_IDS.basic}>
 │ GPT-5.4-mini (2222 tokens)
-╰Perfect for year 10 and below
+╰Perfect for most users
 
 ╭─<@&${PLAN_ROLE_IDS.pro}>
 │ GPT-5.4 (666 tokens)
-│ 99% accuracy
+│ High accuracy
 ╰Fast responses
 
 ╭─<@&${PLAN_ROLE_IDS.premium}>
 │ GPT-5.5 (333 tokens)
-│ 100% accuracy
+│ Perfect accuracy
 ╰Instant responses`
     },
     {
@@ -614,6 +616,32 @@ async function reqKey(email, userId) {
   });
 }
 
+async function runStartupMaintenance() {
+  if (String(process.env.DISABLE_STARTUP_MAINTENANCE || '1').trim() !== '0') {
+    console.log('Startup maintenance skipped.');
+    return;
+  }
+
+  try {
+    const payload = await workerPost('/maintenance/startup', {});
+    if (payload?.started) {
+      console.log(`Startup maintenance: started for ${payload.londonDate || 'today'}.`);
+      return;
+    }
+
+    const result = payload?.result || {};
+    const patreon = result.patreon || {};
+    const roles = result.discordRoles || {};
+    const categoryName = patreon.membersCategory?.name || 'not updated';
+
+    console.log(
+      `Startup maintenance: ${categoryName}; roles checked ${roles.checked ?? 0}, added ${roles.added ?? 0}, removed ${roles.removed ?? 0}.`
+    );
+  } catch (err) {
+    logErr('Startup maintenance failed', err);
+  }
+}
+
 function noKeyEmb(email) {
   return {
     title: 'Email Not Found',
@@ -709,20 +737,70 @@ ${keySection('Expired Keys', expiredKeys)}`
   };
 }
 
-async function addPlanRole(interaction, planKey) {
-  const plan = PLAN_BY_KEY.get(planKey);
-  if (!plan?.roleId || !interaction.guild) {
+function bestActivePlanKey(keys) {
+  let bestKey = null;
+  let bestRank = Number.POSITIVE_INFINITY;
+
+  for (const key of keys) {
+    const planKey = key?.tier;
+    const rank = PLAN_RANK.get(planKey);
+    if (keyExpired(key) || !Number.isFinite(rank)) {
+      continue;
+    }
+
+    if (rank < bestRank) {
+      bestKey = planKey;
+      bestRank = rank;
+    }
+  }
+
+  return bestKey;
+}
+
+async function syncPlanRoles(interaction, keys) {
+  if (!interaction.guild) {
     return;
   }
 
+  const wantedPlanKey = bestActivePlanKey(keys);
+  const wantedRoleId = wantedPlanKey ? PLAN_BY_KEY.get(wantedPlanKey)?.roleId : null;
+  const planRoleIds = new Set(PLANS.map(plan => plan.roleId));
+
   try {
-    const member = await interaction.guild.members.fetch(interaction.user.id);
-    if (!member.roles.cache.has(plan.roleId)) {
-      await member.roles.add(plan.roleId, 'SparxSolver key lookup verified this plan');
-      bumpCount(plan.key, 1);
+    const member = await interaction.guild.members.fetch({
+      user: interaction.user.id,
+      force: true
+    });
+
+    let added = 0;
+    let removed = 0;
+
+    if (wantedRoleId && !member.roles.cache.has(wantedRoleId)) {
+      await member.roles.add(wantedRoleId, 'SparxSolver key lookup role sync');
+      bumpCount(wantedPlanKey, 1);
+      added += 1;
+    }
+
+    for (const roleId of planRoleIds) {
+      if (roleId === wantedRoleId || !member.roles.cache.has(roleId)) {
+        continue;
+      }
+
+      await member.roles.remove(roleId, 'SparxSolver key lookup role sync');
+      const stalePlan = PLANS.find(plan => plan.roleId === roleId);
+      if (stalePlan) {
+        bumpCount(stalePlan.key, -1);
+      }
+      removed += 1;
+    }
+
+    if (added || removed) {
+      console.log(
+        `Key lookup role sync for ${interaction.user.id}: wanted ${wantedPlanKey || 'none'}, added ${added}, removed ${removed}.`
+      );
     }
   } catch (err) {
-    logErr(`Failed to assign ${planKey} role to ${interaction.user.id}`, err);
+    logErr(`Failed to sync plan roles for ${interaction.user.id}`, err);
   }
 }
 
@@ -902,6 +980,10 @@ function scheduleTicket(channel, userId, deleteAt, warned = false) {
 }
 
 async function updateTicketTopic(channel, userId, deleteAt, warned) {
+  if (!channel || typeof channel.setTopic !== 'function') {
+    return;
+  }
+
   const meta = parseTicketTopic(channel.topic);
   await channel.setTopic(
     ticketTopic(userId, deleteAt, warned, meta?.type || CONFIG.ticketPrefix),
@@ -1187,13 +1269,7 @@ async function onKeySubmit(interaction) {
       return;
     }
 
-    for (const key of keys) {
-      if (keyExpired(key)) {
-        continue;
-      }
-
-      await addPlanRole(interaction, key.tier);
-    }
+    await syncPlanRoles(interaction, keys);
 
     await safeEdit(interaction, {
       embeds: [mkEmb(foundKeysEmb(email, result))]
@@ -1231,6 +1307,7 @@ async function onReady() {
     await refreshBotVersion();
     await refreshMsgs();
     await scheduleOpenTickets();
+    await runStartupMaintenance();
   } catch (err) {
     logErr('Startup task failed', err);
   }
