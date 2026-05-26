@@ -20,7 +20,7 @@ const {
   TextInputBuilder,
   TextInputStyle
 } = require('discord.js');
-const { createCanvas, loadImage } = require('@napi-rs/canvas');
+const { createCanvas, loadImage, GlobalFonts } = require('@napi-rs/canvas');
 
 if (typeof fetch !== 'function') {
   throw new Error('This bot requires Node.js 18 or newer because it uses the built-in fetch API.');
@@ -1292,6 +1292,21 @@ function dashboardTheme(profile) {
   return DASHBOARD_THEMES.blue;
 }
 
+function dashboardPageLabel(page) {
+  switch (page) {
+    case DASHBOARD_PAGES.keys:
+      return 'plans';
+    case DASHBOARD_PAGES.settings:
+      return 'settings';
+    case DASHBOARD_PAGES.support:
+    case DASHBOARD_PAGES.upgrade:
+      return 'support';
+    case DASHBOARD_PAGES.home:
+    default:
+      return 'home';
+  }
+}
+
 function countKeysByPlan(keys = []) {
   const counts = Object.fromEntries(PLANS.map(plan => [plan.key, 0]));
   for (const key of keys) {
@@ -1471,8 +1486,56 @@ function drawProgress(ctx, x, y, width, height, used, cap, theme) {
   }
 }
 
+const WINDOWS_FONT_DIR = process.env.WINDIR ? path.join(process.env.WINDIR, 'Fonts') : 'C:\\Windows\\Fonts';
+const DASHBOARD_FONT_FILES = {
+  regular: [
+    path.join(__dirname, 'fonts', 'Arial.ttf'),
+    path.join(WINDOWS_FONT_DIR, 'arial.ttf'),
+    path.join(WINDOWS_FONT_DIR, 'segoeui.ttf'),
+    '/usr/share/fonts/truetype/liberation2/LiberationSans-Regular.ttf',
+    '/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf',
+    '/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf',
+    '/usr/share/fonts/truetype/freefont/FreeSans.ttf'
+  ],
+  bold: [
+    path.join(__dirname, 'fonts', 'Arial-Bold.ttf'),
+    path.join(WINDOWS_FONT_DIR, 'arialbd.ttf'),
+    path.join(WINDOWS_FONT_DIR, 'segoeuib.ttf'),
+    '/usr/share/fonts/truetype/liberation2/LiberationSans-Bold.ttf',
+    '/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf',
+    '/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf',
+    '/usr/share/fonts/truetype/freefont/FreeSansBold.ttf'
+  ]
+};
+
+function registerDashboardFont(alias, candidates) {
+  for (const fontPath of candidates) {
+    try {
+      if (fs.existsSync(fontPath) && GlobalFonts.registerFromPath(fontPath, alias)) {
+        return alias;
+      }
+    } catch {
+      // Keep trying other installed fonts.
+    }
+  }
+  return null;
+}
+
+function resolveDashboardFonts() {
+  const regular = registerDashboardFont('SparxDashboardSans', DASHBOARD_FONT_FILES.regular);
+  const bold = registerDashboardFont('SparxDashboardSansBold', DASHBOARD_FONT_FILES.bold);
+  return {
+    regular: regular || 'Arial',
+    bold: bold || regular || 'Arial'
+  };
+}
+
+const DASHBOARD_FONTS = resolveDashboardFonts();
+
 function setFont(ctx, weight, size) {
-  ctx.font = `${weight} ${size}px Arial`;
+  const numericWeight = Number.parseInt(weight, 10) || 400;
+  const family = numericWeight >= 650 ? DASHBOARD_FONTS.bold : DASHBOARD_FONTS.regular;
+  ctx.font = `${numericWeight} ${size}px "${family}"`;
 }
 
 function truncateText(ctx, text, maxWidth) {
@@ -1538,6 +1601,7 @@ async function renderDashboardImage(interaction, profile, selectedPage = DASHBOA
   const expiredCounts = countKeysByPlan(expiredKeys(profile));
   const avatar = await loadUserAvatar(interaction);
   const username = interaction.user.username || interaction.user.id;
+  const email = linkedEmail(profile) || 'No email linked';
   const nextExpiryValue = nextExpiry(profile);
 
   ctx.fillStyle = '#061019';
@@ -1547,9 +1611,13 @@ async function renderDashboardImage(interaction, profile, selectedPage = DASHBOA
 
   ctx.fillStyle = '#ffffff';
   setFont(ctx, '700', 36);
-  drawText(ctx, 'SparxSolver Dashboard', 204, 106, 620);
-  setFont(ctx, '500', 21);
-  drawText(ctx, `@${username}`, 204, 142, 420, '#b7c8d7');
+  drawText(ctx, 'SparxSolver Dashboard', 204, 106, 520);
+  setFont(ctx, '700', 28);
+  drawText(ctx, username, 204, 143, 420);
+  setFont(ctx, '500', 18);
+  drawText(ctx, `@${username}`, 760, 95, 150, '#d6e6f2');
+  drawText(ctx, email, 760, 126, 230, '#b7c8d7');
+  drawText(ctx, dashboardPageLabel(selectedPage), 930, 106, 140, '#d6e6f2');
 
   ctx.save();
   ctx.beginPath();
