@@ -1601,7 +1601,6 @@ async function renderDashboardImage(interaction, profile, selectedPage = DASHBOA
   const expiredCounts = countKeysByPlan(expiredKeys(profile));
   const avatar = await loadUserAvatar(interaction);
   const username = interaction.user.username || interaction.user.id;
-  const email = linkedEmail(profile) || 'No email linked';
   const nextExpiryValue = nextExpiry(profile);
 
   ctx.fillStyle = '#061019';
@@ -1614,10 +1613,6 @@ async function renderDashboardImage(interaction, profile, selectedPage = DASHBOA
   drawText(ctx, 'SparxSolver Dashboard', 204, 106, 520);
   setFont(ctx, '700', 28);
   drawText(ctx, username, 204, 143, 420);
-  setFont(ctx, '500', 18);
-  drawText(ctx, `@${username}`, 760, 95, 150, '#d6e6f2');
-  drawText(ctx, email, 760, 126, 230, '#b7c8d7');
-  drawText(ctx, dashboardPageLabel(selectedPage), 930, 106, 140, '#d6e6f2');
 
   ctx.save();
   ctx.beginPath();
