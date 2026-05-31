@@ -1,2004 +1,2004 @@
-const path = require('path');
-const fs = require('fs');
-
-require('dotenv').config({ path: path.join(__dirname, '.env'), quiet: true });
 require('dotenv').config({ quiet: true });
 
+const fs = require('fs');
+const os = require('os');
+const path = require('path');
+const { execFile } = require('child_process');
+const { promisify } = require('util');
+
+const execFileAsync = promisify(execFile);
+
 const {
+  Client,
+  GatewayIntentBits,
+  ChannelType,
+  PermissionFlagsBits,
+  EmbedBuilder,
   ActionRowBuilder,
-  AttachmentBuilder,
   ButtonBuilder,
   ButtonStyle,
-  ChannelType,
-  Client,
-  EmbedBuilder,
-  Events,
-  GatewayIntentBits,
-  ModalBuilder,
-  PermissionFlagsBits,
   StringSelectMenuBuilder,
+  ModalBuilder,
   TextInputBuilder,
   TextInputStyle
 } = require('discord.js');
-const { createCanvas, loadImage, GlobalFonts } = require('@napi-rs/canvas');
 
 if (typeof fetch !== 'function') {
   throw new Error('This bot requires Node.js 18 or newer because it uses the built-in fetch API.');
 }
 
-const DASHBOARD_CHANNEL_ID = String(process.env.DASHBOARD_CHANNEL_ID || '1492211341274910911').trim();
-const SUPPORT_CHANNEL_ID = String(process.env.SUPPORT_CHANNEL_ID || '1495957637865541662').trim();
-const STATE_FILE = path.join(__dirname, 'managed-message-state.json');
-const STATE_MESSAGE_KEY = 'user_dashboard_panel';
-const PANEL_CONFIG_KEY = 'user_dashboard_panel';
-const DASHBOARD_BUTTON_ID = 'spx_user_dashboard';
-const DASHBOARD_LINK_PREFIX = 'spx_dashboard_link';
-const DASHBOARD_LINK_MODAL_PREFIX = 'spx_dashboard_link_modal';
-const DASHBOARD_SELECT_PREFIX = 'spx_dashboard_select';
-const DASHBOARD_PREF_PREFIX = 'spx_dashboard_pref';
-const DASHBOARD_PREF_RESET_PREFIX = 'spx_dashboard_pref_reset';
-const DASHBOARD_REFRESH_PREFIX = 'spx_dashboard_refresh';
-const DASHBOARD_SIGN_OUT_PREFIX = 'spx_dashboard_signout';
-const ONBOARDING_NAV_PREFIX = 'spx_onboarding_nav';
-const SUPPORT_ERROR_CODES_PREFIX = 'spx_support_error_codes';
-const SUPPORT_INFO_PREFIX = 'spx_support_info';
-const SUPPORT_TICKET_PREFIX = 'spx_support_ticket';
-const SUPPORT_TICKET_DELETE_PREFIX = 'spx_support_ticket_delete';
-const EPHEMERAL_FLAG = 1 << 6;
-const PURGE_BATCH_SIZE = 100;
-const WORKER_TIMEOUT_MS = 8000;
-const TICKET_PREFIX = 'support';
-const TICKET_TOPIC_PREFIX = 'issue-owner:';
-const TICKET_LIFETIME_MS = 24 * 60 * 60 * 1000;
-const TICKET_USER_DELETE_DELAY_MS = 60 * 60 * 1000;
-const TICKET_TIME_ZONE = process.env.TICKET_TIME_ZONE || 'Europe/Stockholm';
-const DASHBOARD_RATE_LIMIT_MAX_KEYS = 2500;
-const DASHBOARD_RATE_LIMIT_DEFAULT = { limit: 8, windowMs: 10000 };
-const DASHBOARD_RATE_LIMITS = {
-  open: { limit: 2, windowMs: 8000 },
-  select: { limit: 6, windowMs: 10000 },
-  settings: { limit: 8, windowMs: 10000 },
-  modal: { limit: 3, windowMs: 30000 },
-  ticket: { limit: 1, windowMs: 30000 },
-  deleteTicket: { limit: 2, windowMs: 10000 }
-};
-const DASHBOARD_GLOBAL_RATE_LIMITS = {
-  open: { limit: 40, windowMs: 10000 },
-  modal: { limit: 30, windowMs: 30000 },
-  ticket: { limit: 8, windowMs: 60000 }
-};
-
-const DEFAULT_PANEL = {
-  title: 'SparxSolver Dashboard',
-  content: `SparxSolver is the best AI-powered assistant that helps solve your Sparx Maths, Reader and Science with ease.`,
-  color: 0x0075ff,
-  footer: 'https://discord.gg/CmZJ4Fy6Wh'
-};
-
-const URLS = {
-  patreon: 'https://www.patreon.com/cw/SparxxSolver/membership',
-  release: 'https://github.com/SparxSolver/SparxSolver/releases/latest',
-  buy: {
-    affordable: 'https://www.patreon.com/checkout/SparxxSolver?rid=28320508',
-    basic: 'https://www.patreon.com/checkout/SparxxSolver?rid=28354798',
-    pro: 'https://www.patreon.com/checkout/SparxxSolver?rid=28354808',
-    premium: 'https://www.patreon.com/checkout/SparxxSolver?rid=28354812'
+const ids = {
+  ch: {
+    buyPing: '1510728709026611232',
+    tickets: '1510722809511547000',
+    autoDeleteA: '1498037391892545557',
+    setup: '1492211341274910911',
+    keyAll: '1510722835356582049',
+    keyAff: '1510722848417910826',
+    keyBas: '1510722861038567434',
+    keyPro: '1510722873214373898',
+    keyPrm: '1510723223036366909',
+    relList: '1496407953949982790',
+    issues: '1510723300928524409',
+    errorLogs: '1510723315021643877'
+  },
+  role: {
+    aff: '1493707110020546731',
+    bas: '1493707149069647932',
+    pro: '1493707169655292105',
+    prm: '1493707187091144875'
+  },
+  user: {
+    bot: '1492213061354786969',
+    owner: '1486781207814475836'
   }
 };
 
-const PLAN_ROLE_IDS = {
-  affordable: '1493707110020546731',
-  basic: '1493707149069647932',
-  pro: '1493707169655292105',
-  premium: '1493707187091144875'
+const cid = {
+  keyBtn: 'klk',
+  keyModal: 'kmd',
+  setupBtn: 'sub',
+  setupPage: 'sup',
+  infoMenu: 'spx_info_menu',
+  infoBtn: 'spx_info',
+  issueStat: 'spx_status',
+  issueOpen: 'spx_ticket',
+  issueDelete: 'idl',
+  errorCodeSelect: 'ecs'
 };
 
-const PLAN_CAPS = {
-  affordable: 50000,
-  basic: 100000,
-  pro: 33000,
-  premium: 250000
+const legacyCid = {
+  infoMenu: 'ivm',
+  infoBtn: 'ivi',
+  issueStat: 'ist',
+  issueOpen: 'iop'
 };
 
-const PLANS = [
-  { key: 'affordable', name: 'Affordable', price: '£1/month', roleId: PLAN_ROLE_IDS.affordable, color: 0xf1c40f },
-  { key: 'basic', name: 'Basic', price: '£3/month', roleId: PLAN_ROLE_IDS.basic, color: 0xe67e22 },
-  { key: 'pro', name: 'Pro', price: '£5/month', roleId: PLAN_ROLE_IDS.pro, color: 0x1abc9c },
-  { key: 'premium', name: 'Premium', price: '£10/month', roleId: PLAN_ROLE_IDS.premium, color: 0x3498db }
-];
-
-const PLAN_BY_KEY = new Map(PLANS.map(plan => [plan.key, plan]));
-const PLAN_PRIORITY = ['premium', 'pro', 'basic', 'affordable'];
-const ONBOARDING_LAST_PAGE = 4;
-const DASHBOARD_PAGES = {
-  home: 'home',
-  keys: 'keys_usage',
-  upgrade: 'plans_upgrade',
-  settings: 'settings',
-  support: 'help_support'
+const cfg = {
+  purgeAgeMs: 14 * 24 * 60 * 60 * 1000,
+  purgeRetryMs: 1000,
+  httpTimeoutMs: 8000,
+  systemProbeTimeoutMs: 2500,
+  cpuSampleMs: 750,
+  statusCacheMs: 60 * 60 * 1000,
+  issueDeleteDelayMs: 1500,
+  issueLifetimeMs: 24 * 60 * 60 * 1000,
+  issueWarnBeforeDeleteMs: 60 * 60 * 1000,
+  issuePrefix: 'issues',
+  issueTopicPrefix: 'issue-owner:',
+  defaultBotServiceName: 'bot.service'
 };
 
-const DASHBOARD_THEMES = {
-  emerald: { label: 'Emerald', color: 0x2ecc71, hex: '#2ecc71', dark: '#10251d', mid: '#164232', soft: '#d8f8e8' },
-  blue: { label: 'Blue', color: 0x3498db, hex: '#3498db', dark: '#0e2234', mid: '#163f61', soft: '#d8ecfb' },
-  gold: { label: 'Gold', color: 0xf1c40f, hex: '#f1c40f', dark: '#2b2205', mid: '#5a4708', soft: '#fff3bd' },
-  rose: { label: 'Rose', color: 0xe74c3c, hex: '#e74c3c', dark: '#33110e', mid: '#641f18', soft: '#fbe0dc' }
-};
+const versionInfoUrl = process.env.SPARXSOLVER_VERSION_URL ||
+  'https://raw.githubusercontent.com/SparxSolver/SparxSolver/refs/heads/main/version.json';
 
-const DEFAULT_DASHBOARD_PREFERENCES = {
-  accentColor: 'blue',
-  layout: 'detailed',
-  usageDisplay: 'tokens_percent'
-};
-
-const ERROR_CODES = [
-  [1, 'AI returned an empty response'],
-  [2, 'Invalid action'],
-  [3, 'Invalid screenshot payload'],
-  [4, 'Help disabled for bookwork checks'],
-  [5, 'Invalid license'],
-  [6, 'Expired license'],
-  [7, 'AI service not configured'],
-  [8, 'Same question rate limited'],
-  [9, 'AI unreachable'],
-  [10, 'AI model unavailable'],
-  [11, 'AI provider rate limited'],
-  [12, 'AI auth failed'],
-  [13, 'AI provider error'],
-  [14, 'Weekly token limit reached']
-];
-
-const bot = new Client({
-  intents: [
-    GatewayIntentBits.Guilds,
-    GatewayIntentBits.GuildMessages,
-    GatewayIntentBits.GuildMembers
-  ]
-});
-
-let ready = false;
-let readyTimer = null;
-const ticketTimers = new Map();
-const dashboardRateLimits = new Map();
-
-function env(name) {
-  const value = String(process.env[name] || '').trim();
-  if (!value) {
-    throw new Error(`${name} is missing from .env`);
-  }
-
-  return value;
+function getLocalVersionFilePaths() {
+  return [process.env.SPARXSOLVER_VERSION_FILE].filter(Boolean);
 }
 
-function clip(value, max) {
+function getBotVersionSource() {
+  const source = String(process.env.SPARXSOLVER_VERSION_SOURCE || 'local').trim().toLowerCase();
+  return source === 'github' ? 'github' : 'local';
+}
+
+function getVersionText(value) {
   const text = String(value || '').trim();
-  if (text.length <= max) {
-    return text;
-  }
-
-  return `${text.slice(0, Math.max(0, max - 3))}...`;
+  return /^\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?$/.test(text) ? text : '';
 }
 
-function readState() {
-  try {
-    if (!fs.existsSync(STATE_FILE)) {
-      return {};
-    }
-
-    return JSON.parse(fs.readFileSync(STATE_FILE, 'utf8'));
-  } catch (err) {
-    console.warn(`Could not read ${STATE_FILE}: ${err.message}`);
-    return {};
-  }
-}
-
-function writeState(state) {
-  fs.writeFileSync(STATE_FILE, `${JSON.stringify(state, null, 2)}\n`);
-}
-
-function parseColor(value, fallback) {
-  if (Number.isInteger(value) && value >= 0 && value <= 0xffffff) {
-    return value;
-  }
-
-  const text = String(value || '').trim().replace(/^#/, '').replace(/^0x/i, '');
-  if (/^[0-9a-f]{6}$/i.test(text)) {
-    return Number.parseInt(text, 16);
-  }
-
-  return fallback;
-}
-
-function getPanelConfig(state = readState()) {
-  const custom = state?.customPanels?.[PANEL_CONFIG_KEY] || {};
-
-  return {
-    title: clip(process.env.DASHBOARD_PANEL_TITLE || custom.title || DEFAULT_PANEL.title, 256),
-    content: clip(
-      process.env.DASHBOARD_PANEL_CONTENT ||
-        custom.content ||
-        custom.description ||
-        DEFAULT_PANEL.content,
-      4096
-    ),
-    color: parseColor(process.env.DASHBOARD_PANEL_COLOR || custom.color, DEFAULT_PANEL.color),
-    footer: clip(process.env.DASHBOARD_PANEL_FOOTER || custom.footer || DEFAULT_PANEL.footer, 2048)
-  };
-}
-
-function mkEmbed({ title, description, color, fields = [], footer }) {
-  const embed = new EmbedBuilder()
-    .setColor(color ?? 0x0075ff);
-
-  if (title) {
-    embed.setTitle(clip(title, 256));
-  }
-  if (description) {
-    embed.setDescription(clip(description, 4096));
-  }
-  if (fields.length) {
-    embed.addFields(fields.slice(0, 25).map(field => ({
-      name: clip(field.name, 256),
-      value: clip(field.value || 'Unavailable', 1024),
-      inline: Boolean(field.inline)
-    })));
-  }
-  if (footer) {
-    embed.setFooter({ text: clip(footer, 2048) });
-  }
-
-  return embed;
-}
-
-function dashboardPanelPayload(state = readState()) {
-  const panel = getPanelConfig(state);
-  const button = new ButtonBuilder()
-    .setCustomId(DASHBOARD_BUTTON_ID)
-    .setLabel('Dashboard')
-    .setStyle(ButtonStyle.Primary);
-
-  return {
-    embeds: [
-      mkEmbed({
-        title: panel.title,
-        description: panel.content,
-        color: panel.color,
-        footer: panel.footer
-      })
-    ],
-    components: [new ActionRowBuilder().addComponents(button)]
-  };
-}
-
-function getDisplayName(interaction) {
+function getBotVersionFromJson(data) {
   return (
-    interaction.member?.displayName ||
-    interaction.user.globalName ||
-    interaction.user.username
+    getVersionText(data?.bot?.version) ||
+    getVersionText(data?.Bot?.version) ||
+    getVersionText(data?.BOT?.version) ||
+    getVersionText(data?.versions?.bot) ||
+    getVersionText(data?.versions?.Bot) ||
+    getVersionText(data?.botVersion)
   );
 }
 
-function formatUnixTimestamp(value, style = 'R') {
-  if (value === null) {
-    return 'Never';
-  }
-
-  const unix = Number(value);
-  return Number.isFinite(unix) && unix > 0
-    ? `<t:${Math.floor(unix)}:${style}>`
-    : 'Unavailable';
-}
-
-function formatNumber(value) {
-  const number = Number(value);
-  return Number.isFinite(number) ? Math.max(0, Math.floor(number)).toLocaleString('en-GB') : '0';
-}
-
-function normalizeTier(value) {
-  const tier = String(value || '').trim().toLowerCase();
-  return PLAN_BY_KEY.has(tier) ? tier : 'affordable';
-}
-
-function planName(tier) {
-  return PLAN_BY_KEY.get(normalizeTier(tier))?.name || 'Affordable';
-}
-
-function planCap(tier) {
-  return PLAN_CAPS[normalizeTier(tier)] || PLAN_CAPS.affordable;
-}
-
-function userHasKeys(profile) {
-  return profileKeys(profile).length > 0;
-}
-
-function planPurchaseLine(plan) {
-  return `**${plan.name}** (${plan.price}) - ${formatNumber(PLAN_CAPS[plan.key])} weekly tokens - [Buy](${URLS.buy[plan.key]})`;
-}
-
-function planPurchaseLines() {
-  return PLANS.map(planPurchaseLine).join('\n');
-}
-
-function gettingStartedText() {
-  return `
-Steps:
-1. Buy a plan from [Patreon](${URLS.patreon}).
-2. Link the same Patreon email here to show your keys.
-3. Download the extension from [GitHub Releases](${URLS.release}) and extract the zip file.
-4. Open \`chrome://extensions\`, turn on Developer Mode, then load the extracted folder.
-5. Paste your key into the SparxSolver card in the extension and start using our service.
-`.trim();
-}
-
-function formatMemberCount(value) {
-  const count = Number(value);
-  if (!Number.isFinite(count)) {
-    return '0 Members';
-  }
-
-  const safeCount = Math.max(0, Math.floor(count));
-  return `${safeCount} ${safeCount === 1 ? 'Member' : 'Members'}`;
-}
-
-function getPlanMemberCounts(guild) {
-  const fallback = {
-    affordable: 7,
-    basic: 1,
-    pro: 0,
-    premium: 1
-  };
-
-  const counts = {};
-  for (const plan of PLANS) {
-    const cachedCount = Number(guild?.roles?.cache?.get(plan.roleId)?.members?.size);
-    counts[plan.key] = Number.isFinite(cachedCount) && cachedCount > 0
-      ? cachedCount
-      : fallback[plan.key];
-  }
-
-  return counts;
-}
-
-function onboardingCustomId(userId, page) {
-  return `${ONBOARDING_NAV_PREFIX}:${userId}:${Math.max(0, Math.min(ONBOARDING_LAST_PAGE, Number(page) || 0))}`;
-}
-
-function parseOnboardingCustomId(customId) {
-  const parts = String(customId || '').split(':');
-  if (parts.length !== 3 || parts[0] !== ONBOARDING_NAV_PREFIX) {
-    return null;
-  }
-
-  const page = Number.parseInt(parts[2], 10);
-  return {
-    userId: parts[1],
-    page: Number.isFinite(page) ? Math.max(0, Math.min(ONBOARDING_LAST_PAGE, page)) : 0
-  };
-}
-
-function onboardingActionButton(interaction, page) {
-  if (page === 2) {
-    return linkEmailButton(interaction, 'Link Email');
-  }
-
-  if (page === 4) {
-    return linkEmailButton(interaction, 'Enter Email');
-  }
-
-  if (page === 3) {
-    return new ButtonBuilder()
-      .setLabel('Download Extension')
-      .setStyle(ButtonStyle.Link)
-      .setURL(URLS.release);
-  }
-
-  return new ButtonBuilder()
-    .setLabel('Buy Plan')
-    .setStyle(ButtonStyle.Link)
-    .setURL(URLS.patreon);
-}
-
-function onboardingRows(interaction, page) {
-  const actionButton = onboardingActionButton(interaction, page);
-  const buttons = [
-    new ButtonBuilder()
-      .setCustomId(onboardingCustomId(interaction.user.id, page - 1))
-      .setLabel('Previous')
-      .setStyle(ButtonStyle.Secondary)
-      .setDisabled(page <= 0),
-    actionButton
-  ];
-
-  if (page !== 2 && page !== 4) {
-    buttons.push(linkEmailButton(interaction, 'Enter Email'));
-  }
-
-  buttons.push(
-    new ButtonBuilder()
-      .setCustomId(onboardingCustomId(interaction.user.id, page + 1))
-      .setLabel('Next')
-      .setStyle(ButtonStyle.Secondary)
-      .setDisabled(page >= ONBOARDING_LAST_PAGE)
-  );
-
-  return [
-    new ActionRowBuilder().addComponents(...buttons)
-  ];
-}
-
-function onboardingPlansPayload(interaction) {
-  const counts = getPlanMemberCounts(interaction.guild);
-  return {
-    title: 'Plans',
-    color: 0x2ecc71,
-    fields: [
-      {
-        name: 'Plans',
-        value: `╭─<@&${PLAN_ROLE_IDS.affordable}>
-╰GPT-4o (1000 tokens)
-
-╭─<@&${PLAN_ROLE_IDS.basic}>
-│ GPT-5.4-mini (2222 tokens)
-╰Perfect for most users
-
-╭─<@&${PLAN_ROLE_IDS.pro}>
-│ GPT-5.4 (666 tokens)
-│ High accuracy
-╰Fast responses
-
-╭─<@&${PLAN_ROLE_IDS.premium}>
-│ GPT-5.5 (333 tokens)
-│ Perfect accuracy
-╰Instant responses`
-      },
-      {
-        name: 'Payment Methods',
-        value: `**<:patreon:1507108195221635113> Patreon ([Click to join](${URLS.patreon})):**
--> [[Buy](${URLS.buy.affordable})] <@&${PLAN_ROLE_IDS.affordable}> - £1/month (${formatMemberCount(counts.affordable)})
--> [[Buy](${URLS.buy.basic})] <@&${PLAN_ROLE_IDS.basic}> - £3/month (${formatMemberCount(counts.basic)})
--> [[Buy](${URLS.buy.pro})] <@&${PLAN_ROLE_IDS.pro}> - £5/month (${formatMemberCount(counts.pro)})
--> [[Buy](${URLS.buy.premium})] <@&${PLAN_ROLE_IDS.premium}> - £10/month (${formatMemberCount(counts.premium)})`
+function readLocalBotVersion() {
+  for (const filePath of getLocalVersionFilePaths()) {
+    try {
+      if (!fs.existsSync(filePath)) {
+        continue;
       }
-    ]
-  };
-}
 
-function onboardingPagePayload(interaction, profile = {}, page = 0, message = '') {
-  const safePage = Math.max(0, Math.min(ONBOARDING_LAST_PAGE, Number(page) || 0));
-  let embedData;
-
-  if (safePage === 1) {
-    embedData = onboardingPlansPayload(interaction);
-  } else if (safePage === 2) {
-    embedData = {
-      title: 'Link Patreon Email',
-      color: 0xe67e22,
-      description: [
-        message,
-        'Link the same Patreon email here to show your SparxSolver keys, expiry dates and weekly token usage.',
-        'Use the middle button below to enter your Patreon email.'
-      ].filter(Boolean).join('\n\n')
-    };
-  } else if (safePage === 3) {
-    embedData = {
-      title: 'Install The Extension',
-      color: 0x3498db,
-      description: [
-        `Download the extension from [GitHub Releases](${URLS.release}) and extract the zip file.`,
-        'Open `chrome://extensions`, turn on Developer Mode, then load the extracted folder.'
-      ].join('\n')
-    };
-  } else if (safePage === 4) {
-    embedData = {
-      title: 'Link And Use Your Key',
-      color: 0x2ecc71,
-      description: [
-        message,
-        'Paste your key into the SparxSolver card in the extension and start using our service.',
-        'If your dashboard still does not show your account, use Enter Email below to link the same Patreon email here.'
-      ].filter(Boolean).join('\n\n')
-    };
-  } else {
-    embedData = {
-      title: `${getDisplayName(interaction)} Dashboard`,
-      color: 0x2ecc71,
-      description: [message, gettingStartedText()].filter(Boolean).join('\n\n'),
-      footer: 'Use Previous and Next to go through the setup steps.'
-    };
-  }
-
-  return {
-    embeds: [mkEmbed(embedData)],
-    components: onboardingRows(interaction, safePage)
-  };
-}
-
-function keyExpired(key) {
-  if (typeof key?.expired === 'boolean') {
-    return key.expired;
-  }
-  if (key?.expires === null) {
-    return false;
-  }
-
-  const unix = Number(key?.expires);
-  return Number.isFinite(unix) && unix > 0 && unix <= Math.floor(Date.now() / 1000);
-}
-
-function usageBar(used, cap) {
-  const safeCap = Math.max(1, Number(cap) || 1);
-  const usedTokens = Math.max(0, Number(used) || 0);
-  const leftRatio = Math.max(0, Math.min(1, (safeCap - usedTokens) / safeCap));
-  const leftPercent = Math.max(0, Math.round(leftRatio * 100));
-  const leftBlocks = Math.max(0, Math.min(20, Math.round(leftPercent / 5)));
-  const usedBlocks = 20 - leftBlocks;
-
-  return `${'█'.repeat(leftBlocks)}${'░'.repeat(usedBlocks)}\n${leftPercent}% left`;
-}
-
-function usageLeftPercent(used, cap) {
-  const safeCap = Math.max(1, Number(cap) || 1);
-  const usedTokens = Math.max(0, Number(used) || 0);
-  return Math.max(0, Math.round(((safeCap - usedTokens) / safeCap) * 100));
-}
-
-function usageBarOnly(used, cap) {
-  return usageBar(used, cap).split('\n')[0];
-}
-
-function dashboardCustomId(prefix, userId) {
-  return `${prefix}:${userId}`;
-}
-
-function parseScopedCustomId(customId, prefix) {
-  const expected = `${prefix}:`;
-  const text = String(customId || '');
-  return text.startsWith(expected) ? text.slice(expected.length) : '';
-}
-
-function isScopedToUser(interaction, prefix) {
-  return parseScopedCustomId(interaction.customId, prefix) === interaction.user.id;
-}
-
-function profileKeys(profile) {
-  return Array.isArray(profile?.keys) ? profile.keys : [];
-}
-
-function activeKeys(profile) {
-  return profileKeys(profile).filter(key => !keyExpired(key));
-}
-
-function expiredKeys(profile) {
-  return profileKeys(profile).filter(keyExpired);
-}
-
-function bestActivePlan(profile) {
-  const tiers = new Set(activeKeys(profile).map(key => normalizeTier(key.tier)));
-  return PLAN_PRIORITY.find(tier => tiers.has(tier)) || null;
-}
-
-function nextExpiry(profile) {
-  const expiries = activeKeys(profile)
-    .map(key => Number(key.expires))
-    .filter(value => Number.isFinite(value) && value > 0)
-    .sort((left, right) => left - right);
-
-  return expiries[0] || null;
-}
-
-function linkedEmail(profile) {
-  return String(profile?.email || profileKeys(profile).find(key => key.email)?.email || '').trim();
-}
-
-async function syncDashboardRoles(interaction, profile) {
-  if (!interaction.guild) {
-    return;
-  }
-
-  const desiredRoleIds = new Set(
-    activeKeys(profile)
-      .map(key => PLAN_ROLE_IDS[normalizeTier(key.tier)])
-      .filter(Boolean)
-  );
-  const managedRoleIds = Object.values(PLAN_ROLE_IDS);
-  let member;
-
-  try {
-    member = await interaction.guild.members.fetch(interaction.user.id);
-  } catch (err) {
-    console.warn(`Could not fetch dashboard member ${interaction.user.id}: ${err.message || err}`);
-    return;
-  }
-
-  for (const roleId of managedRoleIds) {
-    if (!desiredRoleIds.has(roleId) && member.roles.cache.has(roleId)) {
-      await member.roles.remove(roleId, 'SparxSolver dashboard role sync').catch(err => {
-        console.warn(`Could not remove dashboard role ${roleId} from ${interaction.user.id}: ${err.message || err}`);
-      });
-    }
-  }
-
-  for (const roleId of desiredRoleIds) {
-    if (!member.roles.cache.has(roleId)) {
-      await member.roles.add(roleId, 'SparxSolver dashboard role sync').catch(err => {
-        console.warn(`Could not add dashboard role ${roleId} to ${interaction.user.id}: ${err.message || err}`);
-      });
-    }
-  }
-}
-
-function keyUsageBlock(key) {
-  const tier = normalizeTier(key.tier);
-  const cap = planCap(tier);
-  const used = Math.max(0, Number(key.weeklyTokens) || 0);
-  const status = keyExpired(key) ? 'Expired' : 'Active';
-
-  return [
-    `**${key.licenseKey}**`,
-    `${planName(tier)} - ${status}`,
-    `Expires: ${formatUnixTimestamp(key.expires)}`,
-    `Weekly tokens: ${formatNumber(used)} / ${formatNumber(cap)}`,
-    usageBar(used, cap)
-  ].join('\n');
-}
-
-function dashboardSelectRow(userId, selectedPage = DASHBOARD_PAGES.home) {
-  const menu = new StringSelectMenuBuilder()
-    .setCustomId(dashboardCustomId(DASHBOARD_SELECT_PREFIX, userId))
-    .setPlaceholder('Dashboard page')
-    .addOptions([
-      {
-        label: 'Home',
-        value: DASHBOARD_PAGES.home,
-        description: 'Return to your SparxSolver dashboard home',
-        default: selectedPage === DASHBOARD_PAGES.home
-      },
-      {
-        label: 'Plans & Details',
-        value: DASHBOARD_PAGES.keys,
-        description: 'Plan details, keys, expiry dates and weekly usage',
-        default: selectedPage === DASHBOARD_PAGES.keys
-      },
-      {
-        label: 'Support',
-        value: DASHBOARD_PAGES.support,
-        description: 'Open a private support ticket',
-        default: selectedPage === DASHBOARD_PAGES.support
-      },
-      {
-        label: 'Settings',
-        value: DASHBOARD_PAGES.settings,
-        description: 'Dashboard preferences and sign out',
-        default: selectedPage === DASHBOARD_PAGES.settings
+      const version = getBotVersionFromJson(JSON.parse(fs.readFileSync(filePath, 'utf8')));
+      if (version) {
+        return version;
       }
-    ]);
+    } catch (err) {
+      console.warn(`Could not read bot version from ${filePath}: ${err.message}`);
+    }
+  }
 
-  return new ActionRowBuilder().addComponents(menu);
-}
-
-function linkEmailButton(interaction, label = 'Link Email') {
-  return new ButtonBuilder()
-    .setCustomId(dashboardCustomId(DASHBOARD_LINK_PREFIX, interaction.user.id))
-    .setLabel(label)
-    .setStyle(ButtonStyle.Primary);
-}
-
-function emailLookupRows(interaction) {
-  return [
-    new ActionRowBuilder().addComponents(
-      linkEmailButton(interaction, 'Sign In')
-    )
-  ];
-}
-
-function linkEmailRow(interaction, label = 'Link Email') {
-  return new ActionRowBuilder().addComponents(linkEmailButton(interaction, label));
-}
-
-function serviceActionRows() {
-  return [
-    new ActionRowBuilder().addComponents(
-      new ButtonBuilder()
-        .setLabel('Buy SparxSolver')
-        .setStyle(ButtonStyle.Link)
-        .setURL(URLS.patreon),
-      new ButtonBuilder()
-        .setLabel('Download Extension')
-        .setStyle(ButtonStyle.Link)
-        .setURL(URLS.release)
-    )
-  ];
-}
-
-function dashboardComponents(interaction, profile, selectedPage, extraRows = []) {
-  const rows = [dashboardSelectRow(interaction.user.id, selectedPage)];
-
-  rows.push(...extraRows);
-
-  return rows.slice(0, 5);
-}
-
-function clearMessagePayload(payload) {
-  return {
-    content: null,
-    attachments: [],
-    ...payload
-  };
-}
-
-function loggingInPayload(message = 'Logging in...') {
-  return {
-    content: message,
-    embeds: [],
-    components: [],
-    attachments: []
-  };
-}
-
-function isUnknownInteractionError(err) {
-  return err?.code === 10062 || /Unknown interaction/i.test(String(err?.message || ''));
-}
-
-function noteExpiredInteraction(stage) {
-  void stage;
-}
-
-async function safeDeferReply(interaction, options) {
   try {
-    await interaction.deferReply(options);
-    return true;
-  } catch (err) {
-    if (isUnknownInteractionError(err)) {
-      noteExpiredInteraction('before deferReply');
-      return false;
-    }
-    throw err;
+    return getVersionText(require('../package.json')?.version) || '0.0.0';
+  } catch {
+    return '0.0.0';
   }
 }
 
-async function safeDeferUpdate(interaction) {
-  try {
-    await interaction.deferUpdate();
-    return true;
-  } catch (err) {
-    if (isUnknownInteractionError(err)) {
-      noteExpiredInteraction('before deferUpdate');
-      return false;
-    }
-    throw err;
-  }
-}
-
-async function safeUpdate(interaction, payload) {
-  try {
-    await interaction.update(payload);
-    return true;
-  } catch (err) {
-    if (isUnknownInteractionError(err)) {
-      noteExpiredInteraction('before update');
-      return false;
-    }
-    throw err;
-  }
-}
-
-function pruneDashboardRateLimits(now = Date.now()) {
-  for (const [key, bucket] of dashboardRateLimits) {
-    if (bucket.resetAt <= now) {
-      dashboardRateLimits.delete(key);
-    }
-  }
-
-  if (dashboardRateLimits.size <= DASHBOARD_RATE_LIMIT_MAX_KEYS) {
-    return;
-  }
-
-  const entries = [...dashboardRateLimits.entries()]
-    .sort((left, right) => left[1].resetAt - right[1].resetAt);
-  const targetSize = Math.floor(DASHBOARD_RATE_LIMIT_MAX_KEYS * 0.8);
-  for (const [key] of entries) {
-    if (dashboardRateLimits.size <= targetSize) {
-      break;
-    }
-    dashboardRateLimits.delete(key);
-  }
-}
-
-function dashboardRateLimitBucket(interaction) {
-  const customId = String(interaction.customId || '');
-
-  if (customId === DASHBOARD_BUTTON_ID) {
-    return 'open';
-  }
-  if (customId === SUPPORT_TICKET_DELETE_PREFIX) {
-    return 'deleteTicket';
-  }
-  if (customId.startsWith(`${DASHBOARD_SELECT_PREFIX}:`)) {
-    const page = interaction.values?.[0];
-    return page === DASHBOARD_PAGES.upgrade || page === DASHBOARD_PAGES.support ? 'ticket' : 'select';
-  }
-  if (
-    customId.startsWith(`${DASHBOARD_PREF_PREFIX}:`) ||
-    customId.startsWith(`${DASHBOARD_PREF_RESET_PREFIX}:`) ||
-    customId.startsWith(`${DASHBOARD_SIGN_OUT_PREFIX}:`)
-  ) {
-    return 'settings';
-  }
-  if (
-    customId.startsWith(`${DASHBOARD_LINK_PREFIX}:`) ||
-    customId.startsWith(`${DASHBOARD_LINK_MODAL_PREFIX}:`)
-  ) {
-    return 'modal';
-  }
-  if (customId.startsWith(`${SUPPORT_TICKET_PREFIX}:`)) {
-    return 'ticket';
-  }
-
-  return null;
-}
-
-function consumeDashboardRateLimit(key, settings, now) {
-  const current = dashboardRateLimits.get(key);
-  if (!current || current.resetAt <= now) {
-    dashboardRateLimits.set(key, {
-      count: 1,
-      resetAt: now + settings.windowMs
-    });
-    return { limited: false };
-  }
-
-  current.count += 1;
-  if (current.count <= settings.limit) {
-    return { limited: false };
-  }
-
-  return {
-    limited: true,
-    retryAfterMs: Math.max(0, current.resetAt - now)
-  };
-}
-
-function checkDashboardRateLimit(interaction) {
-  const bucketName = dashboardRateLimitBucket(interaction);
-  if (!bucketName) {
-    return { limited: false };
-  }
-
-  const now = Date.now();
-  pruneDashboardRateLimits(now);
-
-  const settings = DASHBOARD_RATE_LIMITS[bucketName] || DASHBOARD_RATE_LIMIT_DEFAULT;
-  const userKey = `${interaction.user?.id || 'unknown'}:${bucketName}`;
-  const userResult = consumeDashboardRateLimit(userKey, settings, now);
-  if (userResult.limited) {
-    return { ...userResult, bucket: bucketName };
-  }
-
-  const globalSettings = DASHBOARD_GLOBAL_RATE_LIMITS[bucketName];
-  if (!globalSettings) {
-    return { limited: false };
-  }
-
-  const globalResult = consumeDashboardRateLimit(`global:${bucketName}`, globalSettings, now);
-  return globalResult.limited
-    ? { ...globalResult, bucket: `global ${bucketName}` }
-    : { limited: false };
-}
-
-async function acknowledgeRateLimitedInteraction(interaction, result) {
-  console.warn(
-    `Rate limited dashboard ${result.bucket || 'action'} for user ${interaction.user?.id || 'unknown'}; retry after ${Math.ceil((result.retryAfterMs || 0) / 1000)}s.`
-  );
-
-  if (interaction.isButton?.() || interaction.isStringSelectMenu?.()) {
-    await safeDeferUpdate(interaction);
-    return;
-  }
-
-  if (interaction.isModalSubmit?.()) {
-    await safeUpdate(interaction, emailLookupPayload(interaction, 'Please wait a few seconds before trying again.'));
-  }
-}
-
-function paymentMethodsText(interaction) {
-  const counts = getPlanMemberCounts(interaction.guild);
-
-  return `<:patreon:1506721091270475796> Patreon ([Click to join](${URLS.patreon})):
--> [[Buy](${URLS.buy.affordable})] <@&${PLAN_ROLE_IDS.affordable}> - £1/month (${formatMemberCount(counts.affordable)})
--> [[Buy](${URLS.buy.basic})] <@&${PLAN_ROLE_IDS.basic}> - £3/month (${formatMemberCount(counts.basic)})
--> [[Buy](${URLS.buy.pro})] <@&${PLAN_ROLE_IDS.pro}> - £5/month (${formatMemberCount(counts.pro)})
--> [[Buy](${URLS.buy.premium})] <@&${PLAN_ROLE_IDS.premium}> - £10/month (${formatMemberCount(counts.premium)})`;
-}
-
-function emailLookupPayload(interaction, message = '') {
-  return {
-    content: null,
-    embeds: [
-      mkEmbed({
-        title: 'You are not signed in',
-        description: [
-          message,
-          `To sign in, buy a plan from [Patreon](${URLS.patreon}).`,
-          'When you are done, click Sign In and enter the email address you used on Patreon.'
-        ].filter(Boolean).join('\n\n'),
-        color: DASHBOARD_THEMES.blue.color
-      })
-    ],
-    components: emailLookupRows(interaction)
-  };
-}
-
-function linkAccountPayload(interaction, message = '') {
-  return emailLookupPayload(interaction, message);
-}
-
-function dashboardHomePayload(interaction, profile) {
-  const keys = profileKeys(profile);
-  const weeklyPeriod = keys.find(key => key.weeklyPeriod)?.weeklyPeriod || 'Current week';
-  const hasKeys = userHasKeys(profile);
-  const header = [
-    `User: ${interaction.user}`,
-    `Linked email: ${linkedEmail(profile) || 'Unavailable'}`,
-    `Weekly period: ${weeklyPeriod}`
-  ].join('\n');
-  const mainContent = hasKeys
-    ? keys.map(keyUsageBlock).join('\n\n')
-    : [
-        'You are not registered with a SparxSolver key on this dashboard yet.',
-        'Buy SparxSolver from Patreon to get access, then link your Patreon email here.',
-        '',
-        gettingStartedText(),
-        '',
-        '__Plans__',
-        planPurchaseLines()
-      ].join('\n');
-
-  return {
-    embeds: [
-      mkEmbed({
-        title: `${getDisplayName(interaction)} Dashboard`,
-        description: `${header}\n\n${mainContent}`,
-        color: 0x2ecc71,
-        footer: hasKeys
-          ? 'Use the dropdown to manage your SparxSolver account and service.'
-          : 'This dashboard covers the whole SparxSolver service: buying, installing, linking and key usage.'
-      })
-    ],
-    components: dashboardComponents(
-      interaction,
-      profile,
-      DASHBOARD_PAGES.home,
-      hasKeys ? [] : serviceActionRows()
-    )
-  };
-}
-
-function accountStatusPayload(interaction, profile) {
-  const bestPlan = bestActivePlan(profile);
-  const next = nextExpiry(profile);
-  const hasKeys = userHasKeys(profile);
-
-  return {
-    embeds: [
-      mkEmbed({
-        title: 'Account Status',
-        description: hasKeys
-          ? `SparxSolver account profile for ${interaction.user}.`
-          : [
-              'No SparxSolver account is linked yet.',
-              gettingStartedText()
-            ].join('\n\n'),
-        color: bestPlan ? PLAN_BY_KEY.get(bestPlan).color : 0xe67e22,
-        fields: [
-          { name: 'Linked Email', value: linkedEmail(profile) || 'Unavailable', inline: false },
-          { name: 'Active Keys', value: String(activeKeys(profile).length), inline: true },
-          { name: 'Expired Keys', value: String(expiredKeys(profile).length), inline: true },
-          { name: 'Best Active Plan', value: bestPlan ? planName(bestPlan) : 'None', inline: true },
-          { name: 'Next Expiry', value: next ? formatUnixTimestamp(next, 'F') : 'No active expiry', inline: false },
-          { name: 'Discord Profile', value: `${interaction.user}\nID: \`${interaction.user.id}\``, inline: false }
-        ]
-      })
-    ],
-    components: dashboardComponents(
-      interaction,
-      profile,
-      DASHBOARD_PAGES.account,
-      hasKeys ? [] : serviceActionRows()
-    )
-  };
-}
-
-function plansUsagePayload(interaction, profile) {
-  const keys = profileKeys(profile);
-  const hasKeys = userHasKeys(profile);
-  const planLines = PLANS
-    .map(planPurchaseLine)
-    .join('\n');
-  const keyLines = keys.length
-    ? keys.map(key => {
-        const cap = planCap(key.tier);
-        const used = Math.max(0, Number(key.weeklyTokens) || 0);
-        return `**${key.licenseKey}** - ${planName(key.tier)}\n${formatNumber(used)} / ${formatNumber(cap)}\n${usageBar(used, cap)}`;
-      }).join('\n\n')
-    : 'No linked keys.';
-
-  return {
-    embeds: [
-      mkEmbed({
-        title: 'Plans & Usage',
-        description: [
-          '__Plan Limits__',
-          planLines,
-          '',
-          '__Your Keys__',
-          keyLines,
-          '',
-          hasKeys ? '' : gettingStartedText()
-        ].filter(Boolean).join('\n'),
-        color: 0x3498db
-      })
-    ],
-    components: dashboardComponents(
-      interaction,
-      profile,
-      DASHBOARD_PAGES.usage,
-      hasKeys ? [] : serviceActionRows()
-    )
-  };
-}
-
-function supportActionRows(interaction) {
-  return [
-    new ActionRowBuilder().addComponents(
-      new ButtonBuilder()
-        .setCustomId(dashboardCustomId(SUPPORT_TICKET_PREFIX, interaction.user.id))
-        .setLabel('Open Ticket')
-        .setStyle(ButtonStyle.Primary),
-      new ButtonBuilder()
-        .setCustomId(dashboardCustomId(SUPPORT_ERROR_CODES_PREFIX, interaction.user.id))
-        .setLabel('Error Codes')
-        .setStyle(ButtonStyle.Secondary),
-      new ButtonBuilder()
-        .setCustomId(dashboardCustomId(SUPPORT_INFO_PREFIX, interaction.user.id))
-        .setLabel('Important Info')
-        .setStyle(ButtonStyle.Secondary)
-    )
-  ];
-}
-
-function helpSupportPayload(interaction, profile = null) {
-  const hasKeys = userHasKeys(profile);
-  return {
-    embeds: [
-      mkEmbed({
-        title: 'Support',
-        description: [
-          hasKeys
-            ? 'Use this page if your dashboard is missing keys, showing the wrong plan, or your weekly usage looks wrong.'
-            : 'Use this page if you need help buying SparxSolver, installing the extension, linking your email, or using your key.',
-          hasKeys ? '' : gettingStartedText(),
-          '',
-          'Press Open Ticket to create a private support channel.',
-          `Include your Discord user ID if staff asks for it: \`${interaction.user.id}\`.`,
-          'You can also view error codes and important service information from the buttons below.',
-          'Do not post full license keys in public channels.'
-        ].join('\n'),
-        color: 0x5865f2
-      })
-    ],
-    components: dashboardComponents(
-      interaction,
-      profile,
-      DASHBOARD_PAGES.support,
-      [
-        ...supportActionRows(interaction),
-        ...(hasKeys ? [] : serviceActionRows())
-      ]
-    )
-  };
-}
-
-function supportErrorCodesPayload(interaction, profile = null) {
-  return {
-    content: null,
-    embeds: [
-      mkEmbed({
-        title: 'Error Codes',
-        description: ERROR_CODES
-          .map(([code, label]) => `**${code}** - ${label}`)
-          .join('\n'),
-        color: 0xe67e22,
-        footer: 'Error code 14 means the weekly token limit for that key is fully used.'
-      })
-    ],
-    components: dashboardComponents(
-      interaction,
-      profile || { keys: [] },
-      DASHBOARD_PAGES.support,
-      supportActionRows(interaction)
-    )
-  };
-}
-
-function supportImportantInfoPayload(interaction, profile = null) {
-  return {
-    content: null,
-    embeds: [
-      mkEmbed({
-        title: 'Important Information',
-        description: [
-          '__Privacy__',
-          'SparxSolver uses your license key, Patreon email and Discord ID only to verify account access and show your dashboard.',
-          'Question screenshots are sent to the solving service to generate answers and are not shown in public Discord channels.',
-          '',
-          '__Terms__',
-          'Use SparxSolver only on your own account and do not share license keys.',
-          'Weekly token limits apply per key and reset each ISO week using London time.',
-          '',
-          '__Support__',
-          'Support tickets are private to you and staff. Do not paste passwords, payment details or full private account data unless staff specifically asks for safe details.',
-          '',
-          '__Service Notes__',
-          'Weekly token limits reset by ISO week using London time.',
-          'A key cannot be used once its weekly tokens are at or above its plan limit.',
-          'Changing your email relinks this Discord dashboard to keys found under the new Patreon email.',
-          '',
-          '__Install__',
-          gettingStartedText()
-        ].join('\n'),
-        color: 0x0075ff
-      })
-    ],
-    components: dashboardComponents(
-      interaction,
-      profile || { keys: [] },
-      DASHBOARD_PAGES.support,
-      supportActionRows(interaction)
-    )
-  };
-}
-
-function settingsPayload(interaction, profile) {
-  return {
-    embeds: [
-      mkEmbed({
-        title: 'Settings',
-        description: [
-          `Discord profile: ${interaction.user}`,
-          `Current linked email: ${linkedEmail(profile) || 'Not linked'}`,
-          '',
-          'Use the button below to link or change the Patreon email used for this dashboard.',
-          '',
-          userHasKeys(profile) ? '' : gettingStartedText()
-        ].join('\n'),
-        color: 0x95a5a6
-      })
-    ],
-    components: dashboardComponents(interaction, profile, DASHBOARD_PAGES.settings)
-  };
-}
-
-async function dashboardPagePayload(interaction, profile, page) {
-  if (!userHasKeys(profile)) {
-    return emailLookupPayload(interaction);
-  }
-
-  switch (page) {
-    case DASHBOARD_PAGES.keys:
-      return renderedKeysUsagePayload(interaction, profile);
-    case DASHBOARD_PAGES.upgrade:
-    case DASHBOARD_PAGES.support:
-      return renderedHelpSupportPayload(interaction, profile);
-    case DASHBOARD_PAGES.settings:
-      return renderedSettingsPayload(interaction, profile);
-    case DASHBOARD_PAGES.home:
-    default:
-      return renderedDashboardHomePayload(interaction, profile);
-  }
-}
-
-function linkAccountModal(userId) {
-  const modal = new ModalBuilder()
-    .setCustomId(dashboardCustomId(DASHBOARD_LINK_MODAL_PREFIX, userId))
-    .setTitle('Sign In');
-
-  const email = new TextInputBuilder()
-    .setCustomId('email')
-    .setLabel('Email address used on Patreon')
-    .setPlaceholder('example@gmail.com')
-    .setStyle(TextInputStyle.Short)
-    .setMinLength(5)
-    .setMaxLength(254)
-    .setRequired(true);
-
-  return modal.addComponents(new ActionRowBuilder().addComponents(email));
-}
-
-function normalizeEmail(value) {
-  return String(value || '').trim().toLowerCase();
-}
-
-function validEmail(email) {
-  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
-}
-
-async function workerPost(route, body) {
-  const workerUrl = env('LICENSE_WORKER_URL').replace(/\/+$/, '');
-  const secret = env('LICENSE_WORKER_SECRET');
+async function readRemoteBotVersion() {
   const ctrl = new AbortController();
-  const timer = setTimeout(() => ctrl.abort(), WORKER_TIMEOUT_MS);
+  const timer = setTimeout(() => ctrl.abort(), cfg.httpTimeoutMs);
 
   try {
-    const res = await fetch(`${workerUrl}${route}`, {
-      method: 'POST',
+    const response = await fetch(versionInfoUrl, {
+      cache: 'no-store',
       headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${secret}`
+        Accept: 'application/json'
       },
-      body: JSON.stringify(body),
       signal: ctrl.signal
     });
 
-    const json = await res.json().catch(() => ({}));
-    if (!res.ok) {
-      throw new Error(json.error || `Worker request failed with status ${res.status}.`);
+    if (!response.ok) {
+      throw new Error(`GitHub version.json returned ${response.status}.`);
     }
 
-    return json;
+    const version = getBotVersionFromJson(await response.json());
+    if (!version) {
+      throw new Error('GitHub version.json does not contain a valid bot version.');
+    }
+
+    return version;
   } finally {
     clearTimeout(timer);
   }
 }
 
-async function fetchDashboardProfile(userId, email) {
-  const normalizedEmail = normalizeEmail(email);
-  return workerPost('/dashboard/profile', {
-    discordUserId: userId,
-    ...(normalizedEmail ? { email: normalizedEmail, replaceEmail: true } : {})
-  });
+async function refreshBotVersion() {
+  const versionSource = getBotVersionSource();
+
+  if (versionSource !== 'github') {
+    ver = `SparxSolver ${readLocalBotVersion()}`;
+    console.log(`Bot version loaded from local source: ${ver}`);
+    return ver;
+  }
+
+  try {
+    const version = await readRemoteBotVersion();
+    ver = `SparxSolver ${version}`;
+    console.log(`Bot version loaded from GitHub ${versionInfoUrl}: ${ver}`);
+  } catch (err) {
+    logShortErr(`Failed to load remote bot version from ${versionInfoUrl}`, err);
+    ver = `SparxSolver ${readLocalBotVersion()}`;
+    console.log(`Using local fallback bot version: ${ver}`);
+  }
+
+  return ver;
 }
 
-async function updateDashboardPreferences(userId, preferences = {}, reset = false) {
-  return workerPost('/dashboard/preferences', {
-    discordUserId: userId,
-    ...(reset ? { reset: true } : { preferences })
-  });
+let ver = `SparxSolver ${readLocalBotVersion()}`;
+const ephFlags = 1 << 6;
+const issueStatusCache = {
+  text: '',
+  checkedAtMs: 0,
+  inFlight: null
+};
+const issueTimers = new Map();
+const autoDelChIds = new Set([
+  ids.ch.autoDeleteA,
+  ids.ch.tickets,
+  ids.ch.issues
+]);
+const okMsgAuthorIds = new Set([
+  ids.user.bot,
+  ids.user.owner
+]);
+
+const urls = {
+  patreon: 'https://www.patreon.com/cw/SparxxSolver/membership',
+  invite: 'https://discord.gg/CmZJ4Fy6Wh',
+  ticket: 'https://discord.com/channels/1486793780391575693/1510722809511547000',
+  issueGuide: 'https://discord.com/channels/1486793780391575693/1510723300928524409'
+};
+
+const tierRl = {
+  affordable: ids.role.aff,
+  basic: ids.role.bas,
+  pro: ids.role.pro,
+  premium: ids.role.prm
+};
+
+const tierNames = {
+  affordable: `Affordable`,
+  basic: `Basic`,
+  pro: `Pro`,
+  premium: `Premium`
+};
+
+const universalLookupTierKeys = ['premium', 'pro', 'basic', 'affordable'];
+
+function mkNoKeyMsg(keyDef) {
+  const tierName = keyDef.lookupTierKeys ? tierNames.affordable : keyDef.tierName;
+  return `No ${tierName} key was found for that email. Buy SparxSolver ${tierName} to get a license key. If you already have and it's still not showing, open a ticket [here](${urls.ticket}).`;
 }
 
-async function signOutDashboard(userId) {
-  return workerPost('/dashboard/signout', {
-    discordUserId: userId
-  });
+const privacyRightsText = `You have the right to access, correct, or delete your data.`;
+const privacyContactText = `Use Data & Privacy if you need help with privacy or account data.`;
+const infoEmbedColors = {
+  menu: 0x3b82f6,
+  overview: 0x06b6d4,
+  privacy: 0x8b5cf6,
+  howToUse: 0xf59e0b,
+  costs: 0x22c55e
+};
+const legacySupportTicketCodes = new Set(['bug', 'setup', 'license', 'billing', 'data']);
+
+const invInfo = [
+  {
+    code: 'ik',
+    label: `Why SparxSolver?`,
+    style: ButtonStyle.Secondary,
+    embed: {
+      title: `SparxSolver - Why use us?`,
+      description: [
+`SparxSolver is the fastest, most accurate, and most secure way to solve your homework as fast as possible.
+
+We use the best ChatGPT models and have our servers located in the UK for the best performance and security for our users.
+
+Unlike other homework solvers, we never store your personal data, the only thing we use is a screenshot of the question sent directly to ChatGPT and your Patreon email address which is linked to your license key for security purposes.
+
+We make consistent improvements and updates while listening to your suggestions.`
+      ].join('\n'),
+      color: infoEmbedColors.overview
+    }
+  },
+  {
+    code: 'pp',
+    label: `Privacy`,
+    style: ButtonStyle.Secondary,
+    embed: {
+      title: `SparxSolver - Privacy`,
+      description: [
+`SparxSolver stores your license key locally in Chrome using \`chrome.storage.local\`.
+
+When you press Solve or Help, the extension captures the visible tab and sends the screenshot, action, question fingerprint, and license key to the Cloudflare Worker. The Worker sends the screenshot to OpenAI so it can generate the answer or help response.
+
+Screenshots are not stored by the Worker. Generated answer text may be cached briefly for identical-question rate limiting, using hashed keys and a short expiry.
+
+Bot and Worker logging is designed to redact secrets, bearer tokens, license-key-shaped values, and screenshot data URLs.
+
+${privacyRightsText} ${privacyContactText}`
+      ].join('\n'),
+      color: infoEmbedColors.privacy
+    }
+  },
+  {
+    code: 'kl',
+    label: `How to use?`,
+    style: ButtonStyle.Secondary,
+    embed: {
+      title: `SparxSolver - How to use?`,
+      description: [
+`Once you have bought a SparxSolver plan on Patreon (${urls.patreon}) and have your SparxSolver key (<#1510722835356582049>), download the extension from GitHub (https://github.com/SparxSolver/SparxSolver/releases/latest) and extract the zip file.
+
+Then go to your browser, type \`chrome://extensions\` in the address bar, turn on Developer Mode, and load the unpacked extension.
+
+Then go to https://maths.sparx-learning.com/ and go to a homework question. Put your key in the SparxSolver card and press Solve to get the answer to the question.
+
+If you need further help with this please open a ticket: (<#1510722809511547000>).`
+      ].join('\n'),
+      color: infoEmbedColors.howToUse
+    }
+  },
+  {
+    code: 'cf',
+    label: `Costs`,
+    style: ButtonStyle.Secondary,
+    embed: {
+      title: `SparxSolver - Costs`,
+      description: [`
+**__Profit__** (if user buys £10):
+- [[Web]](https://support.patreon.com/hc/en-gb/articles/27991664769677-How-iOS-in-app-purchases-work-on-Patreon) +£8.61 (-£0.80 patreon platform fee, -£0.59 payment processing fee).
+- [[iOS]](https://support.patreon.com/hc/en-gb/articles/27991664769677-How-iOS-in-app-purchases-work-on-Patreon) +£6.20 (-£0.80 patreon platform fee, -£3.00 apples app store fee).
+(we encourage you to buy on the web for the best support otherwise it would cost us more and we would have to raise the price for ios users)
+
+**__Loss__** (monthly costs):
+- [[API]](https://developers.openai.com/api/docs/pricing) -£10 ChatGPT API costs.
+- [[VPS]](https://www.ovhcloud.com/en-gb/) -£5 VPS Hosting for the backend, worker and discord bot.
+
+> We try to be as transparent as possible about where our money goes, your money is safe through patreon and we do not have access to any personal data.
+> All money made from SparxSolver goes back into it to cover costs and fund development.`
+      ].join('\n'),
+      color: infoEmbedColors.costs,
+      image: 'https://support.patreon.com/hc/article_attachments/29912946161933'
+    }
+  }
+];
+
+const msgTickets = {
+  code: 'msg_tickets',
+  kind: 'support_panel',
+  channelId: ids.ch.tickets,
+  openLabel: `Create Ticket`,
+  infoLabel: `Information`,
+  ticketName: `support`,
+  channelPrefix: `support`,
+  ticketType: `support`,
+  staffRoleIds: [],
+  startText: `Hello <@{userId}>. Please describe what you need help with, what you tried, and what happened. This is a private staff ticket, but do not paste full license keys, card details, passwords, or private account data unless staff asks for a safe partial detail.`,
+  embed: {
+    title: `SparxSolver Support`,
+    description: [
+`Open a ticket so we can help support you with any issues.
+
+The information button below can also help you with this.
+
+Our invite link is: ${urls.invite}`
+    ].join('\n'),
+    color: 0x5865f2
+  }
+};
+
+const msgSet = {
+  code: 'msg_set',
+  kind: 'setup',
+  channelId: ids.ch.setup,
+  setupButtonLabel: `Setup SparxSolver`,
+  embed: {
+    title: `Setup SparxSolver`,
+    description: [`
+      Use this channel to get SparxSolver ready after buying a plan.
+
+      Open the Setup Guide below to get started.
+    `].join('\n'),
+    color: 0x0075ff
+  }
+};
+
+const setupPgs = [
+  {
+    title: `1. Buy a Plan`,
+    description: [`
+Buy any one of our plans from our [Patreon](${urls.patreon}):
+
+[[*]](https://discord.com/channels/1486793780391575693/1510723223036366909) **Premium**: [£10 / month](https://www.patreon.com/checkout/SparxxSolver?rid=28354812)
+> gpt-5.5 with the highest quality responses, all features, full homework analysis, and full access.
+
+[[*]](https://discord.com/channels/1486793780391575693/1510722873214373898) **Pro**: [£5 / month](https://www.patreon.com/checkout/SparxxSolver?rid=28354808)
+> gpt-5.4 with the best performance, discord features, and stronger responses.
+
+[[*]](https://discord.com/channels/1486793780391575693/1510722861038567434) **Basic**: [£3 / month](https://www.patreon.com/checkout/SparxxSolver?rid=28354798)
+> gpt-5.4-mini with better pricing and a sharper accuracy.
+
+[[*]](https://discord.com/channels/1486793780391575693/1510722848417910826) **Affordable**: [£1 / month](https://www.patreon.com/checkout/SparxxSolver?rid=28320508)
+> gpt-4o with the lowest price possible and the fastest responses.
+`].join('\n')
+  },
+  {
+  title: `2. Get Your Key`,
+  description: [`
+    Press the button in the <#${ids.ch.keyAll}> channel and enter the email you used to buy the plan.
+    `].join('\n'),
+    image: 'https://cdn.discordapp.com/attachments/1491945158009425942/1502759606739275896/image.png?ex=6a00e172&is=69ff8ff2&hm=1b5155f19c8f21876f05c2f6809ad5fa5348633f082552e7aac0e71a6f450776'
+  },
+  {
+    title: `3. Download the Extension`,
+    description: [`
+1. Download the extension from our GitHub: [[Click here]](https://github.com/SparxSolver/SparxSolver/releases/tag/SparxSolver)
+2. Extract the zip file
+3. Then go to your browser
+4. type \`chrome://extensions\` in the address bar
+5. turn on Developer Mode
+6. and load the unpacked extension.
+
+Make sure your screen looks identical to the one below:
+`].join('\n'),
+    image: 'https://cdn.discordapp.com/attachments/1491945158009425942/1502684969275756574/Untitled58_20260509165135.png?ex=6a009bef&is=69ff4a6f&hm=91b22c9ab93973a568fbc065377d438eed63cdeff1d17476aa4fe4f64eae0ba8'
+  },
+  {
+    title: `Setup Complete!`,
+    description: [
+`Done! Now you can use the SparxSolver extension. If you have any issues with setting SparxSolver up, [open a ticket here](https://discord.com/channels/1486793780391575693/1510722809511547000).
+
+Thanks for using SparxSolver <3`
+    ].join('\n')
+  }
+];
+
+function getTierCp(tierKey) {
+  const cpByTier = {
+    affordable: [
+`SparxSolver Affordable uses ChatGPT's gpt-4o for responses with the cheapest pricing possible and a fast, reliable experience.
+
+Plan details:
+- £1 / month
+- Cheap pricing
+- gpt-4o responses
+- 1000 tokens per request
+- Permanent role on Discord
+
+Grading:
+- Year 7 maths (perfect)
+- Year 8 maths (perfect)
+- Year 9 maths (great)
+- Year 10 maths (good)
+- Year 11 maths (bad)
+
+Buy the plan on [Patreon](${urls.patreon}), then use the button below to get your key.
+If you're buying a key for someone else, use their email.`
+    ].join('\n'),
+    basic: [
+`SparxSolver Basic uses ChatGPT's gpt-5.4-mini for better responses while keeping the pricing cheap and the speed fast.
+
+Plan details:
+- £3 / month
+- Cheap pricing
+- gpt-5.4-mini responses
+- 2222 tokens per request
+- Faster responses
+- Permanent role on Discord
+
+Grading:
+- Year 7 maths (perfect)
+- Year 8 maths (perfect)
+- Year 9 maths (perfect)
+- Year 10 maths (great)
+- Year 11 maths (good)
+
+Buy the plan on [Patreon](${urls.patreon}), then use the button below to get your key.
+If you're buying a key for someone else, use their email.`
+    ].join('\n'),
+    pro: [
+`SparxSolver Pro uses ChatGPT's gpt-5.4 for stronger responses, super fast performance, and better update access.
+
+Plan details:
+- £5 / month
+- Giveaways and special roles
+- gpt-5.4 responses
+- 666 tokens per request
+- Super fast responses
+- Early access to updates
+- Permanent role on Discord
+
+Grading:
+- Year 7 maths (perfect)
+- Year 8 maths (perfect)
+- Year 9 maths (perfect)
+- Year 10 maths (perfect)
+- Year 11 maths (great)
+
+Buy the plan on [Patreon](${urls.patreon}), then use the button below to get your key.
+If you're buying a key for someone else, use their email.`
+    ].join('\n'),
+    premium: [
+`SparxSolver Premium uses ChatGPT's gpt-5.5 for the highest-quality responses, instant speed, and top-priority treatment.
+
+Plan details:
+- £10 / month
+- Giveaways and special roles
+- gpt-5.5 responses (highest quality)
+- 333 tokens per request
+- Instant responses
+- Early access to early versions and updates
+- Test developing versions
+- Requests and top priority treatment
+
+Grading:
+- Year 7 maths (perfect)
+- Year 8 maths (perfect)
+- Year 9 maths (perfect)
+- Year 10 maths (perfect)
+- Year 11 maths (perfect)
+
+Buy the plan on [Patreon](${urls.patreon}), then use the button below to get your key.
+If you're buying a key for someone else, use their email.`
+    ].join('\n')
+  };
+
+  return cpByTier[tierKey] || cpByTier.affordable;
 }
 
-function normalizeDashboardPreferences(value = {}) {
-  const raw = value && typeof value === 'object' ? value : {};
-  const accentColor = String(raw.accentColor || DEFAULT_DASHBOARD_PREFERENCES.accentColor).trim().toLowerCase();
-  const layout = String(raw.layout || DEFAULT_DASHBOARD_PREFERENCES.layout).trim().toLowerCase();
-  const usageDisplay = String(raw.usageDisplay || DEFAULT_DASHBOARD_PREFERENCES.usageDisplay).trim().toLowerCase();
+function mkKeyMsg({ code, channelId, tierKey, tierName, buttonLabel, color }) {
+  const imgByTier = {
+    affordable: 'https://cdn.discordapp.com/attachments/1491945158009425942/1503424735130943558/Screenshot_20260511_164405_Chrome.jpg?ex=6a034ce5&is=6a01fb65&hm=9f6bf9026aab3ca6ea1aea3da15a39ea809693ed450cfc6434d9e88d8949b974&',
+    basic: 'https://cdn.discordapp.com/attachments/1491945158009425942/1503424734774431754/Screenshot_20260511_164407_Chrome.jpg?ex=6a034ce5&is=6a01fb65&hm=09cd6389c4a9d8f4769f6941ad5df0eb9ad2d8f84c457bb9fe6247903d234399&',
+    pro: 'https://cdn.discordapp.com/attachments/1491945158009425942/1503424734438752317/Screenshot_20260511_164411_Chrome.jpg?ex=6a034ce4&is=6a01fb64&hm=a5b0c456d95bcaf0b5fdb22228566387780942df8dc5e5f2822ffe7340665342&',
+    premium: 'https://cdn.discordapp.com/attachments/1491945158009425942/1503424734103076964/Screenshot_20260511_164412_Chrome.jpg?ex=6a034ce4&is=6a01fb64&hm=7cbf1d43a5a7d2e3ab5b264cd2d547e25b80fafc956f4203cba1dfc4183029e0&'
+  };
 
   return {
-    accentColor: Object.prototype.hasOwnProperty.call(DASHBOARD_THEMES, accentColor) ? accentColor : DEFAULT_DASHBOARD_PREFERENCES.accentColor,
-    layout: ['compact', 'detailed'].includes(layout) ? layout : DEFAULT_DASHBOARD_PREFERENCES.layout,
-    usageDisplay: ['tokens_percent', 'tokens', 'percent'].includes(usageDisplay) ? usageDisplay : DEFAULT_DASHBOARD_PREFERENCES.usageDisplay
+    code,
+    kind: 'key',
+    channelId,
+    tierKey,
+    tierName,
+    buttonLabel,
+    embed: {
+      title: `SparxSolver ${tierName}`,
+      description: getTierCp(tierKey),
+      color,
+      image: imgByTier[tierKey]
+    }
   };
 }
 
-function dashboardPreferences(profile) {
-  return normalizeDashboardPreferences(profile?.preferences);
-}
+const msgKeys = [
+  mkKeyMsg({
+    code: 'key_aff',
+    channelId: ids.ch.keyAff,
+    tierKey: 'affordable',
+    tierName: `Affordable`,
+    buttonLabel: `Show Affordable Key`,
+    color: 0xf1c40f
+  }),
+  mkKeyMsg({
+    code: 'key_bas',
+    channelId: ids.ch.keyBas,
+    tierKey: 'basic',
+    tierName: `Basic`,
+    buttonLabel: `Show Basic Key`,
+    color: 0xe67e22
+  }),
+  mkKeyMsg({
+    code: 'key_pro',
+    channelId: ids.ch.keyPro,
+    tierKey: 'pro',
+    tierName: `Pro`,
+    buttonLabel: `Show Pro Key`,
+    color: 0x1abc9c
+  }),
+  mkKeyMsg({
+    code: 'key_prm',
+    channelId: ids.ch.keyPrm,
+    tierKey: 'premium',
+    tierName: `Premium`,
+    buttonLabel: `Show Premium Key`,
+    color: 0x3498db
+  })
+];
 
-function dashboardTheme(profile) {
-  return DASHBOARD_THEMES.blue;
-}
+const msgKeyAll = {
+  code: 'key_all',
+  kind: 'key',
+  channelId: ids.ch.keyAll,
+  tierName: `Key Lookup`,
+  buttonLabel: `Show My Key`,
+  lookupTierKeys: universalLookupTierKeys,
+  embed: {
+    title: `Key Lookup`,
+    description: [
+`Use this button to get your SparxSolver license key from any plan.
 
-function dashboardPageLabel(page) {
-  switch (page) {
-    case DASHBOARD_PAGES.keys:
-      return 'plans';
-    case DASHBOARD_PAGES.settings:
-      return 'settings';
-    case DASHBOARD_PAGES.support:
-    case DASHBOARD_PAGES.upgrade:
-      return 'support';
-    case DASHBOARD_PAGES.home:
-    default:
-      return 'home';
+Enter the email you used on Patreon. This lookup checks Premium, Pro, Basic, and Affordable automatically.`
+    ].join('\n'),
+    color: 0x5865f2
   }
-}
+};
 
-function countKeysByPlan(keys = []) {
-  const counts = Object.fromEntries(PLANS.map(plan => [plan.key, 0]));
-  for (const key of keys) {
-    counts[normalizeTier(key.tier)] += 1;
-  }
-  return counts;
-}
+const msgIss = {
+  code: 'iss_panel',
+  kind: 'issue_panel',
+  channelId: ids.ch.issues,
+  hideOpenButton: true,
+  openLabel: `Report an Issue`,
+  staffRoleIds: [],
+  startText: `Hello <@{userId}>, please use <#${ids.ch.tickets}> to create a support ticket.`,
+  embed: {
+    title: `SparxSolver - Service Status`,
+    description: [
+`Use <#${ids.ch.tickets}> for support tickets.
 
-function planCountLines(profile) {
-  const activeCounts = countKeysByPlan(activeKeys(profile));
-  const expiredCounts = countKeysByPlan(expiredKeys(profile));
-
-  return PLANS
-    .map(plan => `**${plan.name}**: ${activeCounts[plan.key]} active / ${expiredCounts[plan.key]} expired`)
-    .join('\n');
-}
-
-function usageSummary(profile) {
-  const keys = activeKeys(profile);
-  const used = keys.reduce((sum, key) => sum + Math.max(0, Number(key.weeklyTokens) || 0), 0);
-  const cap = keys.reduce((sum, key) => sum + planCap(key.tier), 0);
-  const remaining = Math.max(0, cap - used);
-  const leftPercent = cap > 0 ? Math.max(0, Math.round((remaining / cap) * 100)) : 0;
-  return { used, cap, remaining, leftPercent };
-}
-
-function usageText(used, cap, preferences = DEFAULT_DASHBOARD_PREFERENCES) {
-  const pct = cap > 0 ? Math.max(0, Math.min(100, Math.round(((cap - used) / cap) * 100))) : 0;
-  if (preferences.usageDisplay === 'tokens') {
-    return `${formatNumber(used)} / ${formatNumber(cap)} tokens`;
-  }
-  if (preferences.usageDisplay === 'percent') {
-    return `${pct}% left`;
-  }
-  return `${formatNumber(used)} / ${formatNumber(cap)} tokens (${pct}% left)`;
-}
-
-function nextUpgradePlan(profile) {
-  const current = bestActivePlan(profile);
-  const order = ['affordable', 'basic', 'pro', 'premium'];
-  if (!current) {
-    return PLAN_BY_KEY.get('affordable');
-  }
-
-  const index = order.indexOf(current);
-  return index >= 0 && index < order.length - 1 ? PLAN_BY_KEY.get(order[index + 1]) : null;
-}
-
-function upgradeRecommendation(profile) {
-  const next = nextUpgradePlan(profile);
-  if (!next) {
-    return 'You already have Premium active. Keep an eye on weekly usage and expiry dates.';
-  }
-
-  const current = bestActivePlan(profile);
-  return current
-    ? `Recommended upgrade: **${next.name}** (${next.price}) for ${formatNumber(PLAN_CAPS[next.key])} weekly tokens.`
-    : `Recommended start: **${next.name}** (${next.price}) for ${formatNumber(PLAN_CAPS[next.key])} weekly tokens.`;
-}
-
-function keyUsageLines(profile) {
-  const keys = profileKeys(profile);
-  if (!keys.length) {
-    return 'No linked keys.';
-  }
-
-  return keys.map(key => {
-    const tier = normalizeTier(key.tier);
-    const used = Math.max(0, Number(key.weeklyTokens) || 0);
-    const cap = planCap(tier);
-    const status = keyExpired(key) ? 'Expired' : 'Active';
-    const leftPercent = usageLeftPercent(used, cap);
-    return [
-      `${key.licenseKey} - ${planName(tier)} (${status})`,
-      usageBarOnly(used, cap),
-      `Weekly tokens: ${formatNumber(used)} / ${formatNumber(cap)} (${leftPercent}% left)`,
-      `Expires: ${formatUnixTimestamp(key.expires)}`
-    ].join('\n');
-  }).join('\n\n');
-}
-
-function dashboardRows(interaction, selectedPage, extraRows = []) {
-  return [dashboardSelectRow(interaction.user.id, selectedPage), ...extraRows].slice(0, 5);
-}
-
-function dashboardRefreshRow(interaction) {
-  return new ActionRowBuilder().addComponents(
-    new ButtonBuilder()
-      .setCustomId(dashboardCustomId(DASHBOARD_REFRESH_PREFIX, interaction.user.id))
-      .setLabel('Refresh Dashboard')
-      .setStyle(ButtonStyle.Secondary),
-    new ButtonBuilder()
-      .setLabel('Download Extension')
-      .setStyle(ButtonStyle.Link)
-      .setURL(URLS.release),
-    new ButtonBuilder()
-      .setLabel('Buy / Upgrade')
-      .setStyle(ButtonStyle.Link)
-      .setURL(URLS.patreon)
-  );
-}
-
-function upgradeButtonRow() {
-  return new ActionRowBuilder().addComponents(
-    ...PLANS.map(plan => new ButtonBuilder()
-      .setLabel(plan.name)
-      .setStyle(ButtonStyle.Link)
-      .setURL(URLS.buy[plan.key]))
-  );
-}
-
-function preferenceCustomId(userId, key) {
-  return `${DASHBOARD_PREF_PREFIX}:${userId}:${key}`;
-}
-
-function parsePreferenceCustomId(customId) {
-  const parts = String(customId || '').split(':');
-  if (parts.length !== 3 || parts[0] !== DASHBOARD_PREF_PREFIX) {
-    return null;
-  }
-  return { userId: parts[1], key: parts[2] };
-}
-
-function preferenceSelectRow(interaction, profile, key, placeholder, options) {
-  const preferences = dashboardPreferences(profile);
-  const menu = new StringSelectMenuBuilder()
-    .setCustomId(preferenceCustomId(interaction.user.id, key))
-    .setPlaceholder(placeholder)
-    .addOptions(options.map(option => ({
-      label: option.label,
-      value: option.value,
-      description: option.description,
-      default: preferences[key] === option.value
-    })));
-
-  return new ActionRowBuilder().addComponents(menu);
-}
-
-function settingsRows(interaction, profile) {
-  return [
-    new ActionRowBuilder().addComponents(
-      linkEmailButton(interaction, 'Change Email'),
-      new ButtonBuilder()
-        .setCustomId(dashboardCustomId(DASHBOARD_SIGN_OUT_PREFIX, interaction.user.id))
-        .setLabel('Sign Out')
-        .setStyle(ButtonStyle.Danger)
-    )
-  ];
-}
-
-function roundedRect(ctx, x, y, width, height, radius) {
-  const r = Math.min(radius, width / 2, height / 2);
-  ctx.beginPath();
-  ctx.moveTo(x + r, y);
-  ctx.lineTo(x + width - r, y);
-  ctx.quadraticCurveTo(x + width, y, x + width, y + r);
-  ctx.lineTo(x + width, y + height - r);
-  ctx.quadraticCurveTo(x + width, y + height, x + width - r, y + height);
-  ctx.lineTo(x + r, y + height);
-  ctx.quadraticCurveTo(x, y + height, x, y + height - r);
-  ctx.lineTo(x, y + r);
-  ctx.quadraticCurveTo(x, y, x + r, y);
-  ctx.closePath();
-}
-
-function fillRoundedRect(ctx, x, y, width, height, radius, color) {
-  ctx.fillStyle = color;
-  roundedRect(ctx, x, y, width, height, radius);
-  ctx.fill();
-}
-
-function drawProgress(ctx, x, y, width, height, used, cap, theme) {
-  const ratio = cap > 0 ? Math.max(0, Math.min(1, used / cap)) : 0;
-  fillRoundedRect(ctx, x, y, width, height, height / 2, '#24313d');
-  if (ratio > 0) {
-    fillRoundedRect(ctx, x, y, Math.max(height, width * ratio), height, height / 2, theme.hex);
-  }
-}
-
-const WINDOWS_FONT_DIR = process.env.WINDIR ? path.join(process.env.WINDIR, 'Fonts') : 'C:\\Windows\\Fonts';
-const DASHBOARD_FONT_FILES = {
-  regular: [
-    path.join(__dirname, 'fonts', 'Arial.ttf'),
-    path.join(WINDOWS_FONT_DIR, 'arial.ttf'),
-    path.join(WINDOWS_FONT_DIR, 'segoeui.ttf'),
-    '/usr/share/fonts/truetype/liberation2/LiberationSans-Regular.ttf',
-    '/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf',
-    '/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf',
-    '/usr/share/fonts/truetype/freefont/FreeSans.ttf'
-  ],
-  bold: [
-    path.join(__dirname, 'fonts', 'Arial-Bold.ttf'),
-    path.join(WINDOWS_FONT_DIR, 'arialbd.ttf'),
-    path.join(WINDOWS_FONT_DIR, 'segoeuib.ttf'),
-    '/usr/share/fonts/truetype/liberation2/LiberationSans-Bold.ttf',
-    '/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf',
-    '/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf',
-    '/usr/share/fonts/truetype/freefont/FreeSansBold.ttf'
+Use **Check All Status** here for a private live status report.`
+    ].join('\n'),
+    color: 0xe91e63
+  },
+  actions: [
+    {
+      code: 'sts',
+      label: `Check All Status`,
+      style: ButtonStyle.Secondary,
+      seed: `Initializing Status Checks...`
+    }
   ]
 };
 
-function registerDashboardFont(alias, candidates) {
-  for (const fontPath of candidates) {
-    try {
-      if (fs.existsSync(fontPath) && GlobalFonts.registerFromPath(fontPath, alias)) {
-        return alias;
-      }
-    } catch {
-      // Keep trying other installed fonts.
-    }
+const errorCodeDefs = [
+  {
+    code: '1',
+    label: `! PLEASE READ ! rare empty answer`,
+    summary: `OpenAI returned no visible answer after the Worker retry attempts, so SparxSolver showed its readable fallback message.`,
+    detail: `Check Worker logs for "OpenAI returned empty answer text", the recovery attempt model, finish_reason, token usage, and whether every retry returned no text. Ask for a screenshot only if the fallback says the question was unreadable.`
+  },
+  {
+    code: '2',
+    label: `Invalid action`,
+    summary: `The extension sent an action the Worker does not support.`,
+    detail: `Update the extension, then check the request action value. Supported solve actions are the ones accepted by the Worker.`
+  },
+  {
+    code: '3',
+    label: `Invalid screenshot`,
+    summary: `The screenshot payload was missing, malformed, or too large.`,
+    detail: `Ask the user to refresh Sparx and try again. If repeated, check the extension capture output and MAX_SCREENSHOT_CHARS in the Worker.`
+  },
+  {
+    code: '4',
+    label: `Bookwork help blocked`,
+    summary: `The user tried to use Help on a bookwork check, which the Worker blocks.`,
+    detail: `Tell the user to use the answer-only bookwork flow instead of Help.`
+  },
+  {
+    code: '5',
+    label: `Invalid license`,
+    summary: `The license key was not found or is not a valid stored license.`,
+    detail: `Ask the user to copy the key again. If it still fails, check the license:<key> KV record.`
+  },
+  {
+    code: '6',
+    label: `Expired license`,
+    summary: `The license exists but its expires timestamp is in the past.`,
+    detail: `Confirm the Patreon membership or manually inspect the license record expiration.`
+  },
+  {
+    code: '7',
+    label: `AI not configured`,
+    summary: `The Worker does not have an OpenAI API key configured.`,
+    detail: `Check the Worker dashboard secrets and make sure OPENAI_API_KEY is set on the deployed Worker.`
+  },
+  {
+    code: '8',
+    label: `Same question/local rate limit`,
+    summary: `The extension blocked a repeated or too-frequent solve request before it reached the Worker.`,
+    detail: `Ask the user to wait about a minute, then try again. If they were clicking Solve or Help repeatedly, ask them to wait for the current request to finish before sending another one.`
+  },
+  {
+    code: '9',
+    label: `AI unreachable`,
+    summary: `The Worker could not reach OpenAI.`,
+    detail: `Check Cloudflare Worker egress, OpenAI status, DNS, and request timeout logs.`
+  },
+  {
+    code: '10',
+    label: `AI model unavailable`,
+    summary: `The selected plan model is not available to the OpenAI key right now.`,
+    detail: `Check model access for the configured OpenAI project and whether the model name in the Worker is still valid.`
+  },
+  {
+    code: '11',
+    label: `AI rate limited`,
+    summary: `OpenAI returned a rate-limit response for the current request.`,
+    detail: `Check OpenAI project limits, usage, and retry timing before asking the user to try again.`
+  },
+  {
+    code: '12',
+    label: `AI auth failed`,
+    summary: `OpenAI rejected the configured API key.`,
+    detail: `Check that OPENAI_API_KEY is valid, active, and belongs to the intended OpenAI project.`
+  },
+  {
+    code: '13',
+    label: `AI provider error`,
+    summary: `OpenAI returned an upstream error that did not match a more specific code.`,
+    detail: `Check the Worker log message for the upstream status and provider error text.`
+  },
+  {
+    code: '14',
+    label: `Browser capture quota`,
+    summary: `Chrome blocked the extension because too many visible-tab captures were requested too quickly.`,
+    detail: `Ask the user to wait a few seconds and try again. If this repeats, check whether they are clicking Solve or Help repeatedly before the previous request finishes.`
+  },
+  {
+    code: '15',
+    label: `No license key`,
+    summary: `The extension could not find a saved local license key before sending the request.`,
+    detail: `Ask the user to enter their SparxSolver key again. If the key was removed after an auth failure, validate it from the setup/key flow.`
+  },
+  {
+    code: '16',
+    label: `Server error`,
+    summary: `The Worker returned an unexpected server-side failure or a response the extension could not treat as successful.`,
+    detail: `Check Worker logs around the request time, then verify license lookup, OpenAI access, and route compatibility.`
+  },
+  {
+    code: '17',
+    label: `Extension runtime error`,
+    summary: `The Chrome extension failed before or during the request for a reason that is not covered by a more specific extension code.`,
+    detail: `Ask the user to refresh the Sparx page and retry. If repeated, inspect the extension service-worker console and content-script console.`
+  },
+  {
+    code: '18',
+    label: `Invalid key format`,
+    summary: `The entered key did not match the expected SparxSolver key format.`,
+    detail: `Ask the user to copy the key again from Discord key lookup. Keys should use the short grouped format shown by the bot.`
+  },
+  {
+    code: '19',
+    label: `Validation network error`,
+    summary: `The extension could not reach the Worker while validating a key.`,
+    detail: `Ask the user to check their connection and retry. If multiple users report it, check Worker availability and Cloudflare status.`
   }
-  return null;
+];
+
+const errorCodeByCode = new Map(errorCodeDefs.map(def => [def.code, def]));
+
+function getExtensionBackgroundPath() {
+  return path.resolve(__dirname, '..', 'SparxSolver 1.3.2', 'background.js');
 }
 
-function resolveDashboardFonts() {
-  const regular = registerDashboardFont('SparxDashboardSans', DASHBOARD_FONT_FILES.regular);
-  const bold = registerDashboardFont('SparxDashboardSansBold', DASHBOARD_FONT_FILES.bold);
+function readExtensionErrorCodes(filePath = getExtensionBackgroundPath()) {
+  if (!fs.existsSync(filePath)) {
+    return {
+      filePath,
+      codes: [],
+      skipped: true,
+      reason: 'extension background.js was not found'
+    };
+  }
+
+  const source = fs.readFileSync(filePath, 'utf8');
+  const match = source.match(/const\s+EXTENSION_ERROR_CODES\s*=\s*\{([\s\S]*?)\};/);
+  if (!match) {
+    return {
+      filePath,
+      codes: [],
+      skipped: true,
+      reason: 'EXTENSION_ERROR_CODES was not found'
+    };
+  }
+
+  const codes = [...match[1].matchAll(/\b([A-Z0-9_]+)\s*:\s*(\d+)\s*,?/g)]
+    .map(result => ({
+      name: result[1],
+      code: result[2]
+    }));
+
   return {
-    regular: regular || 'Arial',
-    bold: bold || regular || 'Arial'
+    filePath,
+    codes,
+    skipped: false,
+    reason: ''
   };
 }
 
-const DASHBOARD_FONTS = resolveDashboardFonts();
+function verifyErrorCodeDropdownCoverage() {
+  const extensionCodes = readExtensionErrorCodes();
+  const dropdownCodes = new Set(errorCodeDefs.map(def => def.code));
+  const missing = extensionCodes.codes.filter(def => !dropdownCodes.has(def.code));
 
-function setFont(ctx, weight, size) {
-  const numericWeight = Number.parseInt(weight, 10) || 400;
-  const family = numericWeight >= 650 ? DASHBOARD_FONTS.bold : DASHBOARD_FONTS.regular;
-  ctx.font = `${numericWeight} ${size}px "${family}"`;
-}
-
-function truncateText(ctx, text, maxWidth) {
-  const value = String(text || '');
-  if (ctx.measureText(value).width <= maxWidth) {
-    return value;
-  }
-
-  let next = value;
-  while (next.length > 1 && ctx.measureText(`${next}...`).width > maxWidth) {
-    next = next.slice(0, -1);
-  }
-  return `${next}...`;
-}
-
-function drawText(ctx, text, x, y, maxWidth, color = '#ffffff') {
-  ctx.fillStyle = color;
-  ctx.fillText(truncateText(ctx, text, maxWidth), x, y);
-}
-
-function drawFittedText(ctx, text, x, y, maxWidth, weight, maxSize, minSize, color = '#ffffff') {
-  for (let size = maxSize; size >= minSize; size -= 1) {
-    setFont(ctx, weight, size);
-    if (ctx.measureText(String(text || '')).width <= maxWidth) {
-      ctx.fillStyle = color;
-      ctx.fillText(String(text || ''), x, y);
-      return size;
-    }
-  }
-
-  setFont(ctx, weight, minSize);
-  drawText(ctx, text, x, y, maxWidth, color);
-  return minSize;
-}
-
-function dashboardImageFileName(interaction) {
-  return 'SparxSolver-Dashboard.png';
-}
-
-async function loadUserAvatar(interaction) {
-  try {
-    const url = interaction.user.displayAvatarURL({ extension: 'png', size: 256 });
-    const res = await fetch(url);
-    if (!res.ok) {
-      return null;
-    }
-    return await loadImage(Buffer.from(await res.arrayBuffer()));
-  } catch {
-    return null;
-  }
-}
-
-async function renderDashboardImage(interaction, profile, selectedPage = DASHBOARD_PAGES.home) {
-  const width = 1200;
-  const height = 675;
-  const canvas = createCanvas(width, height);
-  const ctx = canvas.getContext('2d');
-  const theme = dashboardTheme(profile);
-  const summary = usageSummary(profile);
-  const best = bestActivePlan(profile);
-  const next = nextUpgradePlan(profile);
-  const activeCounts = countKeysByPlan(activeKeys(profile));
-  const expiredCounts = countKeysByPlan(expiredKeys(profile));
-  const avatar = await loadUserAvatar(interaction);
-  const username = interaction.user.username || interaction.user.id;
-  const nextExpiryValue = nextExpiry(profile);
-
-  ctx.fillStyle = '#061019';
-  ctx.fillRect(0, 0, width, height);
-  fillRoundedRect(ctx, 36, 36, width - 72, height - 72, 28, '#0b1420');
-  fillRoundedRect(ctx, 60, 60, width - 120, 118, 24, '#10273b');
-
-  ctx.fillStyle = '#ffffff';
-  setFont(ctx, '700', 36);
-  drawText(ctx, 'SparxSolver Dashboard', 204, 106, 520);
-  setFont(ctx, '700', 28);
-  drawText(ctx, username, 204, 143, 420);
-
-  ctx.save();
-  ctx.beginPath();
-  ctx.arc(125, 119, 48, 0, Math.PI * 2);
-  ctx.clip();
-  if (avatar) {
-    ctx.drawImage(avatar, 77, 71, 96, 96);
+  if (extensionCodes.skipped) {
+    console.warn(`Extension error-code coverage skipped: ${extensionCodes.reason} (${extensionCodes.filePath}).`);
+  } else if (missing.length > 0) {
+    console.warn(`Extension error codes missing from dropdown: ${missing.map(def => `${def.name}=${def.code}`).join(', ')}.`);
   } else {
-    ctx.fillStyle = theme.hex;
-    ctx.fillRect(77, 71, 96, 96);
-    ctx.fillStyle = '#ffffff';
-    setFont(ctx, '700', 36);
-    ctx.textAlign = 'center';
-    ctx.fillText(String(username || '?').slice(0, 1).toUpperCase(), 125, 132);
-    ctx.textAlign = 'left';
-  }
-  ctx.restore();
-  ctx.lineWidth = 4;
-  ctx.strokeStyle = theme.hex;
-  ctx.beginPath();
-  ctx.arc(125, 119, 50, 0, Math.PI * 2);
-  ctx.stroke();
-
-  const cardY = 214;
-  const cardH = 142;
-  const cardW = 330;
-  const gap = 45;
-  const cardX1 = 60;
-  const cardX2 = cardX1 + cardW + gap;
-  const cardX3 = cardX2 + cardW + gap;
-  for (const x of [cardX1, cardX2, cardX3]) {
-    fillRoundedRect(ctx, x, cardY, cardW, cardH, 20, '#111f2b');
+    console.log(`Error dropdown covers extension error codes: ${extensionCodes.codes.map(def => def.code).join(', ')}.`);
   }
 
-  setFont(ctx, '700', 18);
-  drawText(ctx, 'Best Plan', cardX1 + 28, cardY + 40, cardW - 56, theme.soft);
-  drawText(ctx, 'Weekly Tokens', cardX2 + 28, cardY + 40, cardW - 56, theme.soft);
-  drawText(ctx, 'Upgrade', cardX3 + 28, cardY + 40, cardW - 56, theme.soft);
-
-  drawFittedText(ctx, best ? planName(best) : 'No Plan', cardX1 + 28, cardY + 86, cardW - 56, '700', 32, 22);
-  setFont(ctx, '500', 17);
-  drawText(ctx, `Next expiry: ${nextExpiryValue ? new Date(nextExpiryValue * 1000).toLocaleDateString('en-GB') : 'None'}`, cardX1 + 28, cardY + 118, cardW - 56, '#aebdca');
-
-  const tokenMain = summary.cap > 0 ? `${formatNumber(summary.used)} / ${formatNumber(summary.cap)} tokens` : 'No quota';
-  const tokenSub = summary.cap > 0 ? `${summary.leftPercent}% left` : 'No linked token quota';
-  drawFittedText(ctx, tokenMain, cardX2 + 28, cardY + 84, cardW - 56, '700', 28, 18);
-  drawProgress(ctx, cardX2 + 28, cardY + 98, cardW - 56, 14, summary.used, summary.cap, theme);
-  setFont(ctx, '500', 16);
-  drawText(ctx, tokenSub, cardX2 + 28, cardY + 126, cardW - 56, '#aebdca');
-
-  drawFittedText(ctx, next ? next.name : 'Premium', cardX3 + 28, cardY + 86, cardW - 56, '700', 32, 22);
-  setFont(ctx, '500', 16);
-  drawText(ctx, next ? `${next.price} - ${formatNumber(PLAN_CAPS[next.key])} weekly tokens` : 'Top plan active', cardX3 + 28, cardY + 118, cardW - 56, '#aebdca');
-
-  const bottomY = 398;
-  fillRoundedRect(ctx, 60, bottomY, 510, 210, 20, '#0f1b25');
-  fillRoundedRect(ctx, 610, bottomY, 530, 210, 20, '#0f1b25');
-
-  setFont(ctx, '700', 20);
-  drawText(ctx, 'Owned Plans', 88, bottomY + 44, 430, theme.soft);
-  drawText(ctx, 'Key Usage', 638, bottomY + 44, 450, theme.soft);
-
-  let y = bottomY + 82;
-  setFont(ctx, '500', 19);
-  for (const plan of PLANS) {
-    ctx.fillStyle = '#ffffff';
-    drawText(ctx, `${plan.name}: ${activeCounts[plan.key]} active`, 88, y, 210);
-    ctx.fillStyle = '#7f8e9a';
-    drawText(ctx, `${expiredCounts[plan.key]} expired`, 330, y, 160, '#7f8e9a');
-    y += 32;
-  }
-
-  y = bottomY + 82;
-  const shownKeys = [...activeKeys(profile), ...expiredKeys(profile)].slice(0, 4);
-  if (!shownKeys.length) {
-    ctx.fillStyle = '#ffffff';
-    setFont(ctx, '500', 22);
-    drawText(ctx, 'No keys linked yet.', 638, y, 430);
-  } else {
-    setFont(ctx, '500', 17);
-    for (const key of shownKeys) {
-      const used = Math.max(0, Number(key.weeklyTokens) || 0);
-      const cap = planCap(key.tier);
-      const leftPct = cap > 0 ? Math.max(0, Math.round(((cap - used) / cap) * 100)) : 0;
-      const label = keyExpired(key)
-        ? `${key.licenseKey} - ${planName(key.tier)} expired`
-        : `${key.licenseKey} - ${planName(key.tier)}`;
-      ctx.fillStyle = '#ffffff';
-      drawText(ctx, label, 638, y, 270);
-      ctx.fillStyle = '#aebdca';
-      drawText(ctx, `${formatNumber(used)} / ${formatNumber(cap)}`, 920, y, 150, '#aebdca');
-      drawText(ctx, `${leftPct}%`, 1078, y, 50, '#aebdca');
-      drawProgress(ctx, 638, y + 11, 430, 10, used, cap, theme);
-      y += 40;
-    }
-    if (profileKeys(profile).length > shownKeys.length) {
-      drawText(ctx, `+${profileKeys(profile).length - shownKeys.length} more keys`, 638, y, 430, '#aebdca');
-    }
-  }
-
-  return canvas.toBuffer('image/png');
+  return {
+    ...extensionCodes,
+    missing
+  };
 }
 
-async function renderedDashboardPayload(interaction, profile, selectedPage, embedData, extraRows = []) {
-  const theme = dashboardTheme(profile);
-  const components = dashboardRows(interaction, selectedPage, extraRows);
-  const embed = mkEmbed({ color: theme.color, ...embedData });
-
-  if (selectedPage !== DASHBOARD_PAGES.home) {
-    return { content: null, embeds: [embed], components, files: [], attachments: [] };
-  }
-
-  try {
-    const image = await renderDashboardImage(interaction, profile, selectedPage);
-    const fileName = dashboardImageFileName(interaction);
-    const attachment = new AttachmentBuilder(image, { name: fileName });
-    embed.setImage(`attachment://${fileName}`);
-    return { content: null, embeds: [embed], components, files: [attachment], attachments: [] };
-  } catch (err) {
-    console.warn(`Dashboard image render failed: ${err.stack || err.message || err}`);
-    return { content: null, embeds: [embed], components, attachments: [] };
-  }
-}
-
-async function renderedDashboardHomePayload(interaction, profile) {
-  return renderedDashboardPayload(interaction, profile, DASHBOARD_PAGES.home, {
-    title: 'Home'
-  });
-}
-
-async function renderedKeysUsagePayload(interaction, profile) {
-  return renderedDashboardPayload(interaction, profile, DASHBOARD_PAGES.keys, {
-    title: 'Plans & Details',
-    description: keyUsageLines(profile),
-    footer: 'Weekly limits reset each ISO week using London time.'
-  });
-}
-
-async function renderedPlansUpgradePayload(interaction, profile) {
-  const next = nextUpgradePlan(profile);
-
-  return renderedDashboardPayload(interaction, profile, DASHBOARD_PAGES.upgrade, {
-    title: 'Support',
-    description: upgradeRecommendation(profile),
-    fields: [
-      { name: 'Your Plan Counts', value: planCountLines(profile), inline: false },
-      { name: 'Payment Methods', value: paymentMethodsText(interaction), inline: false },
-      {
-        name: 'Recommended Action',
-        value: next
-          ? `[Upgrade to ${next.name}](${URLS.buy[next.key]}) and press Refresh Dashboard after Patreon updates your account.`
-          : 'You are already on Premium. Press Refresh Dashboard after renewing or changing keys.',
-        inline: false
-      }
-    ]
-  });
-}
-
-async function renderedSettingsPayload(interaction, profile) {
-  const theme = dashboardTheme(profile);
-
-  return renderedDashboardPayload(interaction, profile, DASHBOARD_PAGES.settings, {
-    title: 'Settings',
-    description: 'Manage the Patreon email linked to this Discord account.',
-    color: theme.color,
-    fields: [
-      { name: 'Linked Email', value: linkedEmail(profile) || 'Not linked', inline: false }
-    ]
-  }, settingsRows(interaction, profile));
-}
-
-async function renderedHelpSupportPayload(interaction, profile) {
-  return renderedDashboardPayload(interaction, profile, DASHBOARD_PAGES.support, {
-    title: 'Support',
+const msgErr = {
+  code: 'error_logs',
+  kind: 'error_log_panel',
+  channelId: ids.ch.errorLogs,
+  embed: {
+    title: `SparxSolver - Error Logs`,
     description: [
-      'Open a private ticket if your keys, plan, payment sync or weekly token usage look wrong.',
-      `Discord user ID: \`${interaction.user.id}\``,
-      'You can also view error codes and important service information from the buttons below.',
-      'Do not post full license keys in public channels.'
+`Use this channel for backend, bot, extension, and license-worker error logs.
+
+Available error codes:
+${errorCodeDefs.map(def => `- \`${def.code}\` ${def.label}`).join('\n')}
+
+Select an error code below to see what it means and what to check first.`
     ].join('\n'),
-    color: 0x5865f2
+    color: 0xef4444
+  }
+};
+
+// Managed message refresh order. Keep this in the same channel order as the server layout.
+const msgAll = [
+  msgTickets,
+  msgSet,
+  msgKeyAll,
+  msgKeys[0],
+  msgKeys[1],
+  msgKeys[2],
+  msgKeys[3],
+  msgIss,
+  msgErr
+];
+
+const keyByCh = new Map([...msgKeys, msgKeyAll].map(def => [def.channelId, def]));
+const invInfoByCd = new Map(invInfo.map(def => [def.code, def]));
+const issByCh = new Map([
+  [msgTickets.channelId, msgTickets],
+  [msgIss.channelId, msgIss]
+]);
+const issActByCd = new Map(msgIss.actions.map(def => [def.code, def]));
+
+const bot = new Client({
+  intents: [
+    GatewayIntentBits.Guilds,
+    GatewayIntentBits.GuildMembers,
+    GatewayIntentBits.GuildMessages
+  ]
+});
+
+function requireEnv(name) {
+  const value = String(process.env[name] || '').trim();
+  if (!value) {
+    throw new Error(`${name} is missing from .env`);
+  }
+  return value;
+}
+
+function mkEmb(embDef, extraBottom = '') {
+  const desc = extraBottom
+    ? `${embDef.description}\n\n${extraBottom}`
+    : embDef.description;
+
+  const emb = new EmbedBuilder()
+    .setTitle(embDef.title)
+    .setDescription(desc)
+    .setColor(embDef.color)
+    .setFooter({ text: ver });
+
+  if (embDef.image) {
+    emb.setImage(embDef.image);
+  }
+
+  return emb;
+}
+
+function mkSetupEmb(pgIdx) {
+  const safeIdx = Math.max(0, Math.min(pgIdx, setupPgs.length - 1));
+  const pg = setupPgs[safeIdx];
+
+  const emb = new EmbedBuilder()
+    .setTitle(pg.title)
+    .setDescription(pg.description)
+    .setColor(0x0075ff)
+    .setFooter({ text: ver });
+
+  if (pg.image) {
+    emb.setImage(pg.image);
+  }
+
+  return emb;
+}
+
+function mkSetupRow(pgIdx) {
+  return new ActionRowBuilder().addComponents(
+    new ButtonBuilder()
+      .setCustomId(`${cid.setupPage}:${pgIdx - 1}`)
+      .setLabel(`<`)
+      .setStyle(ButtonStyle.Secondary)
+      .setDisabled(pgIdx <= 0),
+    new ButtonBuilder()
+      .setCustomId(`${cid.setupPage}:${pgIdx + 1}`)
+      .setLabel(`>`)
+      .setStyle(ButtonStyle.Secondary)
+      .setDisabled(pgIdx >= setupPgs.length - 1)
+  );
+}
+
+function mkSetupPayload(pgIdx) {
+  const safeIdx = Math.max(0, Math.min(pgIdx, setupPgs.length - 1));
+
+  return {
+    embeds: [mkSetupEmb(safeIdx)],
+    components: [mkSetupRow(safeIdx)]
+  };
+}
+
+function mkInfoRow(infoDefs) {
+  return new ActionRowBuilder().addComponents(
+    ...infoDefs.slice(0, 5).map(def =>
+      new ButtonBuilder()
+        .setCustomId(`${cid.infoBtn}:${def.code}`)
+        .setLabel(def.label)
+        .setStyle(def.style || ButtonStyle.Secondary)
+    )
+  );
+}
+
+function mkInfoMenuPayload() {
+  return {
+    embeds: [mkEmb({
+      title: `SparxSolver Information`,
+      description: `Choose what you want to read. This reply is private.`,
+      color: infoEmbedColors.menu
+    })],
+    components: [mkInfoRow(invInfo)]
+  };
+}
+
+function mkSupportPanelRow(issueDef) {
+  return new ActionRowBuilder().addComponents(
+    new ButtonBuilder()
+      .setCustomId(`${cid.issueOpen}:${issueDef.channelId}`)
+      .setLabel(issueDef.openLabel || `Create Ticket`)
+      .setStyle(ButtonStyle.Primary),
+    new ButtonBuilder()
+      .setCustomId(cid.infoMenu)
+      .setLabel(issueDef.infoLabel || `Information`)
+      .setStyle(ButtonStyle.Secondary)
+  );
+}
+
+function getCustomIdSegments(customId, ...prefixes) {
+  const parts = String(customId || '').split(':');
+  return prefixes.includes(parts[0]) ? parts.slice(1) : null;
+}
+
+function isExactCustomId(customId, ...idsToMatch) {
+  const id = String(customId || '');
+  return idsToMatch.includes(id);
+}
+
+function getCustomIdCode(customId, ...prefixes) {
+  const segments = getCustomIdSegments(customId, ...prefixes);
+  return segments ? String(segments[0] || '').trim() : null;
+}
+
+function getIssueOpenCustomId(ticketDef) {
+  return ticketDef.code
+    ? `${cid.issueOpen}:${ticketDef.channelId}:${ticketDef.code}`
+    : `${cid.issueOpen}:${ticketDef.channelId}`;
+}
+
+function parseIssueOpenCustomId(customId) {
+  const segments = getCustomIdSegments(customId, cid.issueOpen, legacyCid.issueOpen);
+  if (!segments) {
+    return { issueChannelId: '', ticketCode: '' };
+  }
+
+  const cleanSegments = segments
+    .map(part => String(part || '').trim())
+    .filter(Boolean);
+  const ticketCodes = new Set(getAllTicketButtonDefs().map(def => def.code).filter(Boolean));
+  const ticketCode = cleanSegments.find(segment => ticketCodes.has(segment)) || '';
+  const knownIssueChannelId = cleanSegments.find(segment => issByCh.has(segment)) || '';
+
+  return {
+    issueChannelId: knownIssueChannelId ||
+      cleanSegments.find(segment => !ticketCodes.has(segment) && !legacySupportTicketCodes.has(segment)) ||
+      '',
+    ticketCode
+  };
+}
+
+function mkIssOpenButton(ticketDef) {
+  return new ButtonBuilder()
+    .setCustomId(getIssueOpenCustomId(ticketDef))
+    .setLabel(ticketDef.label || `Create a Ticket`)
+    .setStyle(ticketDef.style || ButtonStyle.Primary);
+}
+
+function mkIssPanelRow(issueDef) {
+  const buttons = [];
+
+  if (!issueDef.hideOpenButton) {
+    if (Array.isArray(issueDef.ticketButtons) && issueDef.ticketButtons.length > 0) {
+      buttons.push(...issueDef.ticketButtons.slice(0, 5).map(mkIssOpenButton));
+    } else {
+      buttons.push(
+        new ButtonBuilder()
+          .setCustomId(`${cid.issueOpen}:${issueDef.channelId}`)
+          .setLabel(issueDef.openLabel)
+          .setStyle(ButtonStyle.Primary)
+      );
+    }
+  }
+
+  for (const actionDef of issueDef.actions.slice(0, 4)) {
+    if (buttons.length >= 5) {
+      break;
+    }
+
+    buttons.push(
+      new ButtonBuilder()
+        .setCustomId(`${cid.issueStat}:${issueDef.channelId}:${actionDef.code}`)
+        .setLabel(actionDef.label)
+        .setStyle(actionDef.style || ButtonStyle.Secondary)
+    );
+  }
+
+  return new ActionRowBuilder().addComponents(...buttons);
+}
+
+function mkIssOpenRows(ticketDefs) {
+  const rows = [];
+  const safeDefs = ticketDefs.slice(0, 25);
+
+  for (let idx = 0; idx < safeDefs.length; idx += 5) {
+    rows.push(
+      new ActionRowBuilder().addComponents(
+        ...safeDefs.slice(idx, idx + 5).map(mkIssOpenButton)
+      )
+    );
+  }
+
+  return rows;
+}
+
+function mkIssOpenRow(ticketDef) {
+  return mkIssOpenRows([ticketDef])[0];
+}
+
+function mkIssDelRow() {
+  return new ActionRowBuilder().addComponents(
+    new ButtonBuilder()
+      .setCustomId(cid.issueDelete)
+      .setLabel(`Delete Ticket`)
+      .setStyle(ButtonStyle.Danger)
+  );
+}
+
+function mkErrCodeRow() {
+  return new ActionRowBuilder().addComponents(
+    new StringSelectMenuBuilder()
+      .setCustomId(cid.errorCodeSelect)
+      .setPlaceholder(`Select an error code`)
+      .setMinValues(1)
+      .setMaxValues(1)
+      .addOptions(errorCodeDefs.map(def => ({
+        label: `Code ${def.code}: ${def.label}`.slice(0, 100),
+        description: def.summary.slice(0, 100),
+        value: def.code
+      })))
+  );
+}
+
+function mkErrCodeEmbed(def) {
+  return mkEmb({
+    title: `Error code ${def.code}: ${def.label}`,
+    description: [
+`Error code: \`${def.code}\`
+
+Meaning:
+${def.summary}
+
+What to check:
+${def.detail}`
+    ].join('\n'),
+    color: 0xef4444
   });
 }
 
-async function sleep(ms) {
+function mkMsgPayload(msgDef, extraBottom = '') {
+  const rows = [];
+  const embDefs = Array.isArray(msgDef.embeds) && msgDef.embeds.length > 0
+    ? msgDef.embeds
+    : [msgDef.embed].filter(Boolean);
+
+  if (msgDef.kind === 'setup') {
+    rows.push(
+      new ActionRowBuilder().addComponents(
+        new ButtonBuilder()
+          .setCustomId(cid.setupBtn)
+          .setLabel(msgDef.setupButtonLabel)
+          .setStyle(ButtonStyle.Primary)
+      )
+    );
+  }
+
+  if (msgDef.kind === 'key') {
+    rows.push(
+      new ActionRowBuilder().addComponents(
+        new ButtonBuilder()
+          .setCustomId(cid.keyBtn)
+          .setLabel(msgDef.buttonLabel)
+          .setStyle(ButtonStyle.Primary)
+      )
+    );
+  }
+
+  if (msgDef.kind === 'issue_panel') {
+    rows.push(mkIssPanelRow(msgDef));
+  }
+
+  if (msgDef.kind === 'error_log_panel') {
+    rows.push(mkErrCodeRow());
+  }
+
+  if (msgDef.kind === 'support_panel') {
+    rows.push(mkSupportPanelRow(msgDef));
+  }
+
+  if (msgDef.ticketButton) {
+    rows.push(mkIssOpenRow(msgDef.ticketButton));
+  }
+
+  if (Array.isArray(msgDef.ticketButtons) && msgDef.ticketButtons.length > 0) {
+    rows.push(...mkIssOpenRows(msgDef.ticketButtons));
+  }
+
+  if (Array.isArray(msgDef.infoButtons) && msgDef.infoButtons.length > 0) {
+    rows.push(mkInfoRow(msgDef.infoButtons));
+  }
+
+  return {
+    embeds: embDefs.map((embDef, idx) =>
+      mkEmb(embDef, idx === embDefs.length - 1 ? extraBottom : '')
+    ),
+    ...(rows.length > 0 ? { components: rows } : {})
+  };
+}
+
+function getManagedMessageParts(msgDef) {
+  if (!Array.isArray(msgDef.messages) || msgDef.messages.length === 0) {
+    return [msgDef];
+  }
+
+  return msgDef.messages.map((partDef, idx) => ({
+    ...partDef,
+    code: partDef.code || `${msgDef.code}_${idx + 1}`,
+    kind: partDef.kind || msgDef.kind,
+    channelId: partDef.channelId || msgDef.channelId
+  }));
+}
+
+function sleep(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
 
-async function purgeChannelMessages(channel) {
+async function clrMsgCh(channel) {
   while (true) {
-    const batch = await channel.messages.fetch({ limit: PURGE_BATCH_SIZE });
-    if (!batch.size) {
+    const batch = await channel.messages.fetch({ limit: 100 });
+
+    if (batch.size === 0) {
       return;
     }
 
-    const deleted = await channel.bulkDelete(batch, true).catch(() => null);
-    const deletedCount = deleted?.size || 0;
-    const remaining = batch.filter(message => !deleted?.has(message.id));
-    let individuallyDeleted = 0;
+    const del = batch.filter(msg => msg.deletable);
 
-    for (const message of remaining.values()) {
-      if (await message.delete().then(() => true).catch(() => false)) {
-        individuallyDeleted += 1;
+    if (del.size === 0) {
+      throw new Error(`Channel ${channel.id} still has ${batch.size} message(s), but none are deletable by the bot.`);
+    }
+
+    const fresh = del.filter(msg => Date.now() - msg.createdTimestamp < cfg.purgeAgeMs);
+    const stale = del.filter(msg => Date.now() - msg.createdTimestamp >= cfg.purgeAgeMs);
+
+    let rm = 0;
+
+    if (fresh.size > 0 && typeof channel.bulkDelete === 'function') {
+      const deletedBatch = await channel.bulkDelete(fresh, true).catch(() => null);
+      rm += deletedBatch?.size ?? 0;
+    }
+
+    for (const msg of stale.values()) {
+      const ok = await msg.delete().then(() => true).catch(() => false);
+
+      if (ok) {
+        rm += 1;
       }
     }
 
-    if (deletedCount + individuallyDeleted === 0) {
-      throw new Error(`Channel ${channel.id} could not be purged.`);
+    if (rm === 0) {
+      throw new Error(`Channel ${channel.id} could not be cleared. Remaining fetched messages: ${batch.size}.`);
     }
 
-    await sleep(1000);
+    await sleep(cfg.purgeRetryMs);
   }
 }
 
-async function resendDashboardPanel() {
-  const channel = await bot.channels.fetch(DASHBOARD_CHANNEL_ID);
-  if (!channel?.isTextBased() || typeof channel.send !== 'function') {
-    throw new Error(`Channel ${DASHBOARD_CHANNEL_ID} is missing or is not a text channel.`);
+async function refMsg(msgDef) {
+  const channel = await bot.channels.fetch(msgDef.channelId);
+
+  if (!channel || !channel.isTextBased() || typeof channel.send !== 'function') {
+    throw new Error(`Channel ${msgDef.channelId} is missing or is not a text channel.`);
   }
 
-  const state = readState();
-  const payload = dashboardPanelPayload(state);
+  await clrMsgCh(channel);
 
-  await purgeChannelMessages(channel);
-
-  const message = await channel.send(payload);
-  state.messageIds = state.messageIds || {};
-  state.messageIds[STATE_MESSAGE_KEY] = message.id;
-  writeState(state);
-  console.log(`Dashboard panel sent to ${DASHBOARD_CHANNEL_ID}: ${message.id}`);
-  return message;
+  for (const partDef of getManagedMessageParts(msgDef)) {
+    await channel.send(mkMsgPayload(partDef));
+  }
 }
 
-function ticketTopic(userId, deleteAt, warned = false) {
-  return `${TICKET_TOPIC_PREFIX}${userId};type:${TICKET_PREFIX};delete-at:${Math.floor(deleteAt)};warned:${warned ? 1 : 0}`;
+async function refAllMsgs() {
+  let refreshed = 0;
+  const failures = [];
+
+  for (const msgDef of msgAll) {
+    try {
+      await refMsg(msgDef);
+      refreshed += 1;
+    } catch (err) {
+      failures.push(`${msgDef.channelId}: ${formatErr(err, 90)}`);
+    }
+  }
+
+  console.log(`Managed messages: ${refreshed}/${msgAll.length} refreshed${failures.length ? `, ${failures.length} failed` : ''}.`);
+
+  if (failures.length > 0) {
+    console.warn(`Managed message failures: ${compactText(failures.join('; '), 240)}`);
+  }
 }
 
-function parseTicketTopic(topic) {
-  const text = String(topic || '');
-  if (!text.startsWith(TICKET_TOPIC_PREFIX)) {
+async function runHttpProbe(url, label) {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), cfg.httpTimeoutMs);
+  const startedAt = Date.now();
+
+  try {
+    const res = await fetch(url, {
+      method: 'GET',
+      signal: ctrl.signal
+    });
+
+    let preview = '';
+
+    try {
+      preview = (await res.text()).slice(0, 120);
+    } catch {
+      preview = '';
+    }
+
+    return {
+      label,
+      ok: res.ok,
+      status: res.status,
+      ms: Date.now() - startedAt,
+      preview
+    };
+  } catch (err) {
+    return {
+      label,
+      ok: false,
+      status: 'ERR',
+      ms: Date.now() - startedAt,
+      preview: err instanceof Error ? err.message : 'Unknown error'
+    };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function runCloudflareStatusProbe(url) {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), cfg.httpTimeoutMs);
+  const startedAt = Date.now();
+
+  try {
+    const res = await fetch(url, {
+      method: 'GET',
+      signal: ctrl.signal
+    });
+    const data = await res.json().catch(() => null);
+    const indicator = String(data?.status?.indicator || '').trim();
+    const description = String(data?.status?.description || '').trim();
+
+    return {
+      url,
+      ok: res.ok && indicator === 'none',
+      status: res.status,
+      ms: Date.now() - startedAt,
+      indicator: indicator || 'unknown',
+      description: description || `No status description returned`
+    };
+  } catch (err) {
+    return {
+      url,
+      ok: false,
+      status: 'ERR',
+      ms: Date.now() - startedAt,
+      indicator: 'unknown',
+      description: err instanceof Error ? err.message : `Unknown error`
+    };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+function compactText(value, maxLen = 120) {
+  const text = String(value || '').replace(/\s+/g, ' ').trim();
+  return text.length > maxLen ? `${text.slice(0, maxLen - 3)}...` : text;
+}
+
+function redactSensitiveText(value) {
+  let text = String(value || '');
+  const knownSecrets = [
+    process.env.TOKEN,
+    process.env.LICENSE_WORKER_SECRET,
+    process.env.WORKER_ADMIN_SECRET,
+    process.env.OPENAI_API_KEY,
+    process.env.PATREON_CREATOR_ACCESS_TOKEN,
+    process.env.PATREON_CREATOR_REFRESH_TOKEN,
+    process.env.PATREON_CLIENT_SECRET
+  ]
+    .map(secret => String(secret || '').trim())
+    .filter(secret => secret.length >= 8);
+
+  for (const secret of knownSecrets) {
+    text = text.split(secret).join('[redacted-secret]');
+  }
+
+  return text
+    .replace(/\b[A-Z0-9]{4}-[A-Z0-9]{4}\b/g, '[redacted-license]')
+    .replace(/Bearer\s+[A-Za-z0-9._~+/=-]+/gi, 'Bearer [redacted]')
+    .replace(/\b(?:token|secret|api[_-]?key|access[_-]?token|refresh[_-]?token)\b\s*[:=]\s*["']?[^"',\s}]+/gi, match => {
+      const separator = match.includes(':') ? ':' : '=';
+      const name = match.split(separator)[0].trim();
+      return `${name}${separator} [redacted]`;
+    });
+}
+
+function formatErr(err, maxLen = 160) {
+  return compactText(redactSensitiveText(err?.message || err), maxLen);
+}
+
+function logShortErr(label, err, maxLen = 160) {
+  console.error(`${label}: ${formatErr(err, maxLen)}`);
+}
+
+function isStaleInteractionErr(err) {
+  const text = formatErr(err, 220);
+  return err?.code === 10062 ||
+    err?.code === 40060 ||
+    /Unknown interaction|already been acknowledged/i.test(text);
+}
+
+async function safeInteractionCall(label, fn) {
+  try {
+    return await fn();
+  } catch (err) {
+    if (isStaleInteractionErr(err)) {
+      console.warn(`${label}: stale Discord interaction ignored (${formatErr(err, 120)}).`);
+      return null;
+    }
+
+    throw err;
+  }
+}
+
+async function safeReply(interaction, payload, label = 'Reply failed') {
+  if (interaction.deferred || interaction.replied) {
+    return safeEditReply(interaction, payload, label);
+  }
+
+  return safeInteractionCall(label, () => interaction.reply(payload));
+}
+
+async function safeDeferReply(interaction, payload, label = 'Defer reply failed') {
+  if (interaction.deferred || interaction.replied) {
+    return true;
+  }
+
+  const result = await safeInteractionCall(label, () => interaction.deferReply(payload));
+  return result !== null;
+}
+
+async function safeEditReply(interaction, payload, label = 'Edit reply failed') {
+  return safeInteractionCall(label, () => interaction.editReply(payload));
+}
+
+async function safeUpdate(interaction, payload, label = 'Update failed') {
+  return safeInteractionCall(label, () => interaction.update(payload));
+}
+
+function formatPercent(value) {
+  const pct = Number(value);
+  return Number.isFinite(pct) ? `${pct.toFixed(pct >= 10 ? 0 : 1)}%` : `unavailable`;
+}
+
+function formatDuration(totalSeconds) {
+  const seconds = Math.max(0, Math.floor(Number(totalSeconds) || 0));
+  const days = Math.floor(seconds / 86400);
+  const hours = Math.floor((seconds % 86400) / 3600);
+  const minutes = Math.floor((seconds % 3600) / 60);
+  const secs = seconds % 60;
+  const parts = [];
+
+  if (days) parts.push(`${days}d`);
+  if (hours) parts.push(`${hours}h`);
+  if (minutes) parts.push(`${minutes}m`);
+  if (!parts.length) parts.push(`${secs}s`);
+
+  return parts.slice(0, 3).join(' ');
+}
+
+function formatDiscordTimestamp(ms) {
+  const unix = Math.floor(ms / 1000);
+  return `<t:${unix}:F> (<t:${unix}:R>)`;
+}
+
+function formatIssueExpiry(delAtUnix) {
+  return `<t:${delAtUnix}:F> (<t:${delAtUnix}:R>). Unix: \`${delAtUnix}\``;
+}
+
+function normalizeTicketSlug(value, fallback = cfg.issuePrefix) {
+  const clean = String(value || '')
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 32);
+
+  if (clean) {
+    return clean;
+  }
+
+  return String(fallback || cfg.issuePrefix)
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 32) || cfg.issuePrefix;
+}
+
+function getTicketContext(issueDef, ticketDef = null) {
+  const fallbackPrefix = issueDef?.channelPrefix || issueDef?.ticketPrefix || cfg.issuePrefix;
+  const channelPrefix = normalizeTicketSlug(
+    ticketDef?.channelPrefix || ticketDef?.ticketPrefix || ticketDef?.code || fallbackPrefix,
+    fallbackPrefix
+  );
+  const ticketType = normalizeTicketSlug(
+    ticketDef?.ticketType || ticketDef?.code || channelPrefix,
+    channelPrefix
+  );
+
+  return { channelPrefix, ticketType };
+}
+
+function buildIssueTopic(ownId, delAtUnix, warned = false, ticketType = cfg.issuePrefix) {
+  const type = normalizeTicketSlug(ticketType);
+  return `${cfg.issueTopicPrefix}${ownId};type:${type};delete-at:${Math.floor(delAtUnix)};warned:${warned ? 1 : 0}`;
+}
+
+function parseIssueTopic(topic) {
+  const text = String(topic || '').trim();
+
+  if (!text.startsWith(cfg.issueTopicPrefix)) {
     return null;
   }
 
-  const [userId, ...parts] = text.slice(TICKET_TOPIC_PREFIX.length).split(';');
+  const [ownId, ...parts] = text.slice(cfg.issueTopicPrefix.length).split(';');
   const meta = {
-    userId: String(userId || '').trim(),
-    type: TICKET_PREFIX,
-    deleteAt: null,
+    ownId: String(ownId || '').trim(),
+    type: '',
+    delAtUnix: null,
     warned: false
   };
 
+  if (!meta.ownId) {
+    return null;
+  }
+
   for (const part of parts) {
     const idx = part.indexOf(':');
+
     if (idx <= 0) {
       continue;
     }
 
     const key = part.slice(0, idx);
     const value = part.slice(idx + 1);
-    if (key === 'type') {
-      meta.type = String(value || '').trim() || TICKET_PREFIX;
-    } else if (key === 'delete-at') {
+
+    if (key === 'delete-at') {
       const unix = Number(value);
-      meta.deleteAt = Number.isFinite(unix) ? Math.floor(unix) : null;
-    } else if (key === 'warned') {
+      meta.delAtUnix = Number.isFinite(unix) ? Math.floor(unix) : null;
+    }
+
+    if (key === 'type') {
+      meta.type = normalizeTicketSlug(value);
+    }
+
+    if (key === 'warned') {
       meta.warned = value === '1' || value === 'true';
     }
   }
 
-  return meta.userId ? meta : null;
+  return meta;
 }
 
-async function findOpenTicket(guild, userId) {
-  const channels = await guild.channels.fetch();
-  return channels.find(channel => {
-    if (channel?.type !== ChannelType.GuildText) {
-      return false;
-    }
+function clearIssueTimers(channelId) {
+  const timers = issueTimers.get(channelId);
 
-    const meta = parseTicketTopic(channel.topic);
-    return meta?.userId === userId && meta.type === TICKET_PREFIX;
-  }) || null;
-}
-
-function formatTicketDate(unix) {
-  const parts = new Intl.DateTimeFormat('en-GB', {
-    timeZone: TICKET_TIME_ZONE,
-    weekday: 'long',
-    day: '2-digit',
-    month: 'long',
-    year: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
-    hourCycle: 'h23'
-  }).formatToParts(new Date(unix * 1000));
-  const byType = Object.fromEntries(parts.map(part => [part.type, part.value]));
-
-  return `${byType.weekday}, ${byType.day} ${byType.month} ${byType.year} ${byType.hour}:${byType.minute}`;
-}
-
-function discordTimestamp(unix, style = 'F') {
-  return `<t:${Math.floor(Number(unix) || 0)}:${style}>`;
-}
-
-function ticketExpiryText(deleteAt) {
-  return `${discordTimestamp(deleteAt, 'R')} at ${discordTimestamp(deleteAt, 'F')}`;
-}
-
-function ticketOwnerDeleteText(deleteAt) {
-  return `${discordTimestamp(deleteAt, 'R')} at ${discordTimestamp(deleteAt, 'F')}`;
-}
-
-function ticketDeleteRow() {
-  return new ActionRowBuilder().addComponents(
-    new ButtonBuilder()
-      .setCustomId(SUPPORT_TICKET_DELETE_PREFIX)
-      .setLabel('Delete Ticket')
-      .setStyle(ButtonStyle.Danger)
-  );
-}
-
-function supportTicketStartText(userId, deleteAt) {
-  return `Hello <@${userId}>, this is a private ticket, what is your issue?
-
-(This ticket will self destruct ${ticketExpiryText(deleteAt)})`;
-}
-
-function clearTicketTimers(channelId) {
-  const timer = ticketTimers.get(channelId);
-  if (timer) {
-    clearTimeout(timer);
-    ticketTimers.delete(channelId);
-  }
-}
-
-function scheduleTicketDelete(channel, deleteAt) {
-  if (!channel?.id || !Number.isFinite(deleteAt)) {
+  if (!timers) {
     return;
   }
 
-  clearTicketTimers(channel.id);
-  const timer = setTimeout(() => {
-    autoDeleteTicket(channel.id).catch(err => {
-      console.error(`Failed to auto-delete support ticket ${channel.id}: ${err.stack || err.message || err}`);
-    });
-  }, Math.max(0, (deleteAt * 1000) - Date.now()));
-  timer.unref?.();
-  ticketTimers.set(channel.id, timer);
+  for (const timer of Object.values(timers)) {
+    clearTimeout(timer);
+  }
+
+  issueTimers.delete(channelId);
 }
 
-async function autoDeleteTicket(channelId) {
+function setIssueTimer(handler, delayMs) {
+  const timer = setTimeout(handler, Math.max(0, delayMs));
+  timer.unref?.();
+  return timer;
+}
+
+function scheduleIssueChannel(channel, ownId, delAtUnix, warned = false) {
+  if (!channel?.id || !Number.isFinite(delAtUnix)) {
+    return;
+  }
+
+  clearIssueTimers(channel.id);
+
+  const delDelayMs = (delAtUnix * 1000) - Date.now();
+  const timers = {};
+
+  if (delDelayMs > 0 && !warned) {
+    timers.warn = setIssueTimer(
+      () => warnIssueChannel(channel.id, ownId, delAtUnix),
+      delDelayMs - cfg.issueWarnBeforeDeleteMs
+    );
+  }
+
+  timers.delete = setIssueTimer(
+    () => autoDeleteIssueChannel(channel.id),
+    delDelayMs
+  );
+
+  issueTimers.set(channel.id, timers);
+}
+
+async function setIssueTopic(channel, ownId, delAtUnix, warned) {
+  if (!channel || typeof channel.setTopic !== 'function') {
+    return;
+  }
+
+  const meta = parseIssueTopic(channel.topic);
+
+  await channel.setTopic(
+    buildIssueTopic(ownId, delAtUnix, warned, meta?.type || cfg.issuePrefix),
+    `Update issue ticket self-destruct timer`
+  ).catch(err => {
+    logShortErr(`Failed to update issue ticket topic ${channel.id}`, err);
+  });
+}
+
+async function warnIssueChannel(channelId, ownId, delAtUnix) {
+  try {
+    const channel = await bot.channels.fetch(channelId);
+
+    if (!channel || !channel.isTextBased() || typeof channel.send !== 'function') {
+      return;
+    }
+
+    await setIssueTopic(channel, ownId, delAtUnix, true);
+    await channel.send(`<@${ownId}> this ticket will self destruct in 1 hour at ${formatIssueExpiry(delAtUnix)}.`);
+  } catch (err) {
+    logShortErr(`Failed to send issue ticket expiry warning ${channelId}`, err);
+  }
+}
+
+async function autoDeleteIssueChannel(channelId) {
   try {
     const channel = await bot.channels.fetch(channelId).catch(() => null);
-    if (channel && typeof channel.delete === 'function') {
-      await channel.delete('Support ticket scheduled deletion');
+
+    if (!channel || typeof channel.delete !== 'function') {
+      return;
     }
+
+    await channel.delete('Issue ticket self-destructed after 24 hours');
+  } catch (err) {
+    logShortErr(`Failed to auto-delete issue ticket ${channelId}`, err);
   } finally {
-    clearTicketTimers(channelId);
+    clearIssueTimers(channelId);
   }
 }
 
-async function ensureTicketExpiry(channel, userId) {
-  const meta = parseTicketTopic(channel.topic);
-  if (Number.isFinite(meta?.deleteAt)) {
-    scheduleTicketDelete(channel, meta.deleteAt);
-    return meta.deleteAt;
+async function ensureIssueExpiry(channel, ownId) {
+  const meta = parseIssueTopic(channel.topic);
+  const oldDelAtUnix = meta?.delAtUnix;
+
+  if (Number.isFinite(oldDelAtUnix)) {
+    scheduleIssueChannel(channel, ownId, oldDelAtUnix, meta.warned);
+    return oldDelAtUnix;
   }
 
-  const deleteAt = Math.floor((Date.now() + TICKET_LIFETIME_MS) / 1000);
-  await channel.setTopic(ticketTopic(userId, deleteAt, false), 'Set support ticket expiry');
-  scheduleTicketDelete(channel, deleteAt);
-  return deleteAt;
+  const delAtUnix = Math.floor((Date.now() + cfg.issueLifetimeMs) / 1000);
+  await setIssueTopic(channel, ownId, delAtUnix, false);
+  scheduleIssueChannel(channel, ownId, delAtUnix, false);
+  return delAtUnix;
 }
 
-async function createSupportTicket(interaction) {
+async function runSystemCommand(file, args) {
+  try {
+    const { stdout, stderr } = await execFileAsync(file, args, {
+      timeout: cfg.systemProbeTimeoutMs,
+      windowsHide: true,
+      maxBuffer: 128 * 1024
+    });
+
+    return {
+      ok: true,
+      stdout: String(stdout || ''),
+      stderr: String(stderr || '')
+    };
+  } catch (err) {
+    return {
+      ok: false,
+      stdout: String(err?.stdout || ''),
+      stderr: compactText(err?.stderr || err?.message || 'Command failed')
+    };
+  }
+}
+
+function parseKeyValueOutput(output) {
+  const data = {};
+
+  for (const line of String(output || '').split(/\r?\n/)) {
+    const idx = line.indexOf('=');
+
+    if (idx > 0) {
+      data[line.slice(0, idx)] = line.slice(idx + 1);
+    }
+  }
+
+  return data;
+}
+
+function readCpuTimes() {
+  let idle = 0;
+  let total = 0;
+
+  for (const cpu of os.cpus()) {
+    idle += cpu.times.idle;
+    total += Object.values(cpu.times).reduce((sum, time) => sum + time, 0);
+  }
+
+  return { idle, total };
+}
+
+async function getCpuUsagePercent() {
+  const first = readCpuTimes();
+  await sleep(cfg.cpuSampleMs);
+  const second = readCpuTimes();
+  const idleDelta = second.idle - first.idle;
+  const totalDelta = second.total - first.total;
+
+  if (totalDelta <= 0) {
+    return null;
+  }
+
+  return Math.max(0, Math.min(100, (1 - idleDelta / totalDelta) * 100));
+}
+
+async function getDiskUsage(targetPath) {
+  if (process.platform === 'win32') {
+    return { path: targetPath, available: false, reason: 'not available on Windows' };
+  }
+
+  const result = await runSystemCommand('df', ['-kP', targetPath]);
+
+  if (!result.ok) {
+    return { path: targetPath, available: false, reason: result.stderr || 'df failed' };
+  }
+
+  const lines = result.stdout.trim().split(/\r?\n/);
+  const parts = (lines[1] || '').trim().split(/\s+/);
+
+  if (parts.length < 6) {
+    return { path: targetPath, available: false, reason: 'unexpected df output' };
+  }
+
+  const total = Number(parts[1]) * 1024;
+  const used = Number(parts[2]) * 1024;
+  const free = Number(parts[3]) * 1024;
+  const usedPct = Number(String(parts[4]).replace('%', ''));
+
+  return {
+    path: targetPath,
+    mount: parts[5],
+    available: true,
+    total,
+    used,
+    free,
+    usedPct
+  };
+}
+
+async function getSystemdServiceStatus() {
+  if (process.platform === 'win32') {
+    return { available: false, reason: 'systemd is not available on Windows' };
+  }
+
+  const serviceName = getEnvValue('STATUS_BOT_SERVICE_NAME', getEnvValue('BOT_SERVICE_NAME', cfg.defaultBotServiceName));
+  const result = await runSystemCommand('systemctl', [
+    'show',
+    serviceName,
+    '--no-page',
+    '--property=ActiveState,SubState,NRestarts'
+  ]);
+
+  if (!result.ok) {
+    return { available: false, serviceName, reason: result.stderr || 'systemctl failed' };
+  }
+
+  return {
+    available: true,
+    serviceName,
+    props: parseKeyValueOutput(result.stdout)
+  };
+}
+
+function getEnvValue(name, fallback = '') {
+  const value = String(process.env[name] || '').trim();
+  return value || fallback;
+}
+
+function getStatusConfig() {
+  return {
+    botLabel: getEnvValue('STATUS_BOT_LABEL', `Discord Bot`),
+    discordLabel: getEnvValue('STATUS_DISCORD_API_LABEL', `Discord API`),
+    vpsLabel: getEnvValue('STATUS_VPS_LABEL', `VPS`),
+    processLabel: getEnvValue('STATUS_PROCESS_LABEL', `Process Manager`),
+    workerLabel: getEnvValue('STATUS_WORKER_LABEL', `License Worker`),
+    cloudflareLabel: getEnvValue('STATUS_CLOUDFLARE_LABEL', `Cloudflare`),
+    discordApiUrl: getEnvValue('STATUS_DISCORD_API_URL'),
+    workerUrl: getEnvValue('STATUS_WORKER_URL') || getEnvValue('LICENSE_WORKER_URL'),
+    cloudflareStatusUrl: getEnvValue('STATUS_CLOUDFLARE_STATUS_URL'),
+    botServiceName: getEnvValue('STATUS_BOT_SERVICE_NAME', cfg.defaultBotServiceName)
+  };
+}
+
+function statusWord(ok) {
+  return ok ? `Operational` : `Down`;
+}
+
+function addServiceStatus(lines, services, name, ok, detail = '') {
+  services.push({ name, ok });
+  lines.push(`- ${name}: ${statusWord(ok)}${detail ? ` (${detail})` : ''}`);
+}
+
+function getOperationalSummary(services) {
+  const total = services.length;
+  const operational = services.filter(service => service.ok).length;
+
+  if (operational === total) {
+    return `All Services Operational`;
+  }
+
+  if (operational === 0) {
+    return `No Services Operational`;
+  }
+
+  return `Most Services Operational`;
+}
+
+async function replyStatusLoading(interaction) {
+  return safeReply(interaction, {
+    content: `Checking SparxSolver status...`,
+    flags: ephFlags
+  }, 'Status loading reply failed').then(result => result !== null);
+}
+
+function addStatusCacheFooter(text, checkedAtMs, fromCache) {
+  const nextLiveMs = checkedAtMs + cfg.statusCacheMs;
+
+  return [
+    text,
+    '',
+    `**Status Rate Limit**`,
+    `- Source: ${fromCache ? `cached result` : `fresh live check`}`,
+    `- Live checks run at most once per hour and reset when the bot restarts.`,
+    `- Next live refresh: ${formatDiscordTimestamp(nextLiveMs)}`
+  ].join('\n');
+}
+
+async function getIssueStatusText(issueDef, actionDef) {
+  const now = Date.now();
+
+  if (issueStatusCache.text && now - issueStatusCache.checkedAtMs < cfg.statusCacheMs) {
+    return addStatusCacheFooter(issueStatusCache.text, issueStatusCache.checkedAtMs, true);
+  }
+
+  if (!issueStatusCache.inFlight) {
+    issueStatusCache.inFlight = buildIssueStatusText(issueDef, actionDef)
+      .then(text => {
+        issueStatusCache.text = text;
+        issueStatusCache.checkedAtMs = Date.now();
+        return text;
+      })
+      .finally(() => {
+        issueStatusCache.inFlight = null;
+      });
+  }
+
+  const text = await issueStatusCache.inFlight;
+  return addStatusCacheFooter(text, issueStatusCache.checkedAtMs, false);
+}
+
+async function buildIssueStatusText(issueDef, actionDef) {
+  const nowUnix = Math.floor(Date.now() / 1000);
+  const statusCfg = getStatusConfig();
+  const memoryTotal = os.totalmem();
+  const memoryFree = os.freemem();
+  const memoryUsed = memoryTotal - memoryFree;
+
+  const [
+    workerProbe,
+    cloudflareStatusProbe,
+    discordApiProbe,
+    cpuUsage,
+    rootDisk,
+    serviceStatus
+  ] = await Promise.all([
+    statusCfg.workerUrl ? runHttpProbe(statusCfg.workerUrl, statusCfg.workerLabel) : Promise.resolve(null),
+    statusCfg.cloudflareStatusUrl ? runCloudflareStatusProbe(statusCfg.cloudflareStatusUrl) : Promise.resolve(null),
+    statusCfg.discordApiUrl ? runHttpProbe(statusCfg.discordApiUrl, statusCfg.discordLabel) : Promise.resolve(null),
+    getCpuUsagePercent(),
+    getDiskUsage('/'),
+    getSystemdServiceStatus()
+  ]);
+
+  const lines = [
+    actionDef.seed,
+    '',
+    `Checked: <t:${nowUnix}:F>`,
+    ''
+  ];
+  const services = [];
+  const botDetails = [
+    Number.isFinite(bot.ws.ping) ? `ping ${Math.round(bot.ws.ping)}ms` : '',
+    `uptime ${formatDuration(process.uptime())}`
+  ].filter(Boolean).join(', ');
+  const discordDetails = discordApiProbe
+    ? `${discordApiProbe.ms}ms`
+    : `not configured`;
+  const workerDetails = workerProbe
+    ? `${workerProbe.ms}ms`
+    : `not configured`;
+  const cfDetails = cloudflareStatusProbe
+    ? compactText(cloudflareStatusProbe.description, 70)
+    : `not configured`;
+  const storagePct = rootDisk?.available ? formatPercent(rootDisk.usedPct) : `unavailable`;
+  const ramPct = memoryTotal ? formatPercent((memoryUsed / memoryTotal) * 100) : `unavailable`;
+  const cpuPct = cpuUsage == null ? `unavailable` : formatPercent(cpuUsage);
+  const vpsDown = (rootDisk?.available && rootDisk.usedPct >= 95) || (memoryTotal && memoryUsed / memoryTotal >= 0.95);
+  const serviceOk = serviceStatus?.available
+    ? serviceStatus.props.ActiveState === 'active'
+    : process.platform !== 'linux';
+  const restartText = serviceStatus?.available && serviceStatus.props.NRestarts
+    ? `, restarts ${serviceStatus.props.NRestarts}`
+    : '';
+
+  lines.push(`**Services**`);
+  addServiceStatus(lines, services, statusCfg.botLabel, bot.isReady(), botDetails);
+  addServiceStatus(lines, services, statusCfg.discordLabel, Boolean(discordApiProbe?.ok), discordDetails);
+  addServiceStatus(lines, services, statusCfg.vpsLabel, !vpsDown, `uptime ${formatDuration(os.uptime())}, CPU ${cpuPct}, RAM ${ramPct}, storage ${storagePct}`);
+  addServiceStatus(lines, services, statusCfg.processLabel, serviceOk, serviceStatus?.available ? `running${restartText}` : `local process`);
+  addServiceStatus(lines, services, statusCfg.workerLabel, Boolean(workerProbe?.ok), workerDetails);
+  addServiceStatus(lines, services, statusCfg.cloudflareLabel, Boolean(cloudflareStatusProbe?.ok), cfDetails);
+
+  lines.push('');
+  lines.push(`**${getOperationalSummary(services)}**`);
+
+  return lines.join('\n');
+}
+
+async function findOpenIssueChannel(guild, userId, ticketType = '') {
+  const channels = await guild.channels.fetch();
+  const desiredType = ticketType ? normalizeTicketSlug(ticketType) : '';
+
+  return channels.find(channel => {
+    const meta = parseIssueTopic(channel?.topic);
+    const metaType = normalizeTicketSlug(meta?.type || cfg.issuePrefix);
+
+    return channel &&
+      channel.type === ChannelType.GuildText &&
+      meta?.ownId === userId &&
+      (!desiredType || metaType === desiredType);
+  }) || null;
+}
+
+function getAllTicketButtonDefs() {
+  const defs = [];
+
+  for (const msgDef of msgAll) {
+    const parts = [
+      msgDef,
+      ...(Array.isArray(msgDef.messages) ? msgDef.messages : [])
+    ];
+
+    for (const part of parts) {
+      if (part?.ticketButton) {
+        defs.push(part.ticketButton);
+      }
+
+      if (Array.isArray(part?.ticketButtons)) {
+        defs.push(...part.ticketButtons);
+      }
+    }
+  }
+
+  return defs;
+}
+
+function getTicketButtonDef(srcChId, issChId, ticketCode) {
+  const ticketDefs = getAllTicketButtonDefs();
+  const normalizedIssueChannelId = String(issChId || '').trim();
+  const normalizedTicketCode = String(ticketCode || '').trim();
+
+  if (!ticketCode) {
+    if (issByCh.has(normalizedIssueChannelId)) {
+      return null;
+    }
+
+    return ticketDefs.find(def => def.code === normalizedIssueChannelId) || null;
+  }
+
+  const exactMatch = ticketDefs.find(def =>
+    def.channelId === normalizedIssueChannelId &&
+    def.code === normalizedTicketCode
+  );
+  if (exactMatch) {
+    return exactMatch;
+  }
+
+  return ticketDefs.find(def => def.code === normalizedTicketCode) || null;
+}
+
+function getIssueOpenTarget(srcChId, issChId, ticketCode) {
+  const ticketDef = getTicketButtonDef(srcChId, issChId, ticketCode);
+  const issueDef = issByCh.get(issChId) ||
+    (ticketDef ? issByCh.get(ticketDef.channelId) : null) ||
+    msgTickets;
+
+  return { issueDef, ticketDef };
+}
+
+function getIssueStartText(issueDef, srcChId, ticketDef = null) {
+  if (ticketDef?.startText) {
+    return ticketDef.startText;
+  }
+
+  return issueDef.startText;
+}
+
+function getTicketReplyName(issueDef, ticketDef = null) {
+  return String(ticketDef?.label || issueDef.ticketName || issueDef.openLabel || 'ticket').trim().toLowerCase();
+}
+
+function buildIssueStartText(issueDef, srcChId, userId, delAtUnix, ticketDef = null) {
+  const startText = String(getIssueStartText(issueDef, srcChId, ticketDef) || '').replaceAll('{userId}', userId);
+
+  return [
+    startText,
+    '',
+    `This ticket will self destruct after 24 hours at ${formatIssueExpiry(delAtUnix)}.`,
+    `Only admins or the bot can delete this ticket.`
+  ].join('\n');
+}
+
+async function createIssueChannel(interaction, issueDef, ticketDef = null) {
   if (!interaction.guild) {
     throw new Error('Tickets can only be created inside a server.');
   }
 
-  const existing = await findOpenTicket(interaction.guild, interaction.user.id);
+  const ticketContext = getTicketContext(issueDef, ticketDef);
+  const existing = await findOpenIssueChannel(interaction.guild, interaction.user.id, ticketContext.ticketType);
+
   if (existing) {
-    const deleteAt = await ensureTicketExpiry(existing, interaction.user.id);
-    return { channel: existing, created: false, deleteAt };
+    const delAtUnix = await ensureIssueExpiry(existing, interaction.user.id);
+    return { channel: existing, created: false, delAtUnix };
   }
 
-  const deleteAt = Math.floor((Date.now() + TICKET_LIFETIME_MS) / 1000);
+  const parentId = interaction.channel?.parentId || null;
+  const delAtUnix = Math.floor((Date.now() + cfg.issueLifetimeMs) / 1000);
   const overwrites = [
     {
       id: interaction.guild.id,
@@ -2025,653 +2025,607 @@ async function createSupportTicket(interaction) {
     }
   ];
 
-  const channel = await interaction.guild.channels.create({
-    name: `${TICKET_PREFIX}-${interaction.user.id}`,
+  for (const roleId of issueDef.staffRoleIds || []) {
+    overwrites.push({
+      id: roleId,
+      allow: [
+        PermissionFlagsBits.ViewChannel,
+        PermissionFlagsBits.SendMessages,
+        PermissionFlagsBits.ReadMessageHistory
+      ]
+    });
+  }
+
+  const issueChannel = await interaction.guild.channels.create({
+    name: `${ticketContext.channelPrefix}-${interaction.user.id}`,
     type: ChannelType.GuildText,
-    ...(interaction.channel?.parentId ? { parent: interaction.channel.parentId } : {}),
-    topic: ticketTopic(interaction.user.id, deleteAt, false),
+    ...(parentId ? { parent: parentId } : {}),
+    topic: buildIssueTopic(interaction.user.id, delAtUnix, false, ticketContext.ticketType),
     permissionOverwrites: overwrites
   });
 
-  await channel.send({
-    content: supportTicketStartText(interaction.user.id, deleteAt),
-    components: [ticketDeleteRow()]
+  await issueChannel.send({
+    content: buildIssueStartText(issueDef, interaction.channelId, interaction.user.id, delAtUnix, ticketDef),
+    components: [mkIssDelRow()]
   });
-  scheduleTicketDelete(channel, deleteAt);
-  return { channel, created: true, deleteAt };
+
+  scheduleIssueChannel(issueChannel, interaction.user.id, delAtUnix, false);
+
+  return { channel: issueChannel, created: true, delAtUnix };
 }
 
-async function canManageTicket(interaction) {
+async function scheduleOpenIssueTickets() {
+  let scheduled = 0;
+
+  for (const guild of bot.guilds.cache.values()) {
+    const channels = await guild.channels.fetch();
+
+    for (const channel of channels.values()) {
+      if (!channel || channel.type !== ChannelType.GuildText) {
+        continue;
+      }
+
+      const meta = parseIssueTopic(channel.topic);
+
+      if (!meta?.ownId) {
+        continue;
+      }
+
+      await ensureIssueExpiry(channel, meta.ownId);
+      scheduled += 1;
+    }
+  }
+
+  console.log(`Issue ticket self-destruct timers scheduled: ${scheduled}.`);
+}
+
+async function canDelIssueCh(interaction) {
   if (!interaction.guild) {
     return false;
   }
 
+  if (interaction.user.id === bot.user?.id) {
+    return true;
+  }
+
   try {
     const member = await interaction.guild.members.fetch(interaction.user.id);
-    return member.permissions.has(PermissionFlagsBits.ManageChannels);
+    return member.permissions.has(PermissionFlagsBits.Administrator);
   } catch {
     return false;
   }
 }
 
-async function onDeleteTicketButton(interaction) {
-  const meta = parseTicketTopic(interaction.channel?.topic);
-  if (!interaction.guild || !interaction.channel || !meta?.userId) {
-    await interaction.reply({
-      content: 'This button can only be used inside a support ticket.',
-      flags: EPHEMERAL_FLAG
-    });
+async function delIssueCh(interaction) {
+  if (!interaction.channel || !interaction.guild) {
+    throw new Error('This issue channel cannot be deleted here.');
+  }
+
+  const allowed = await canDelIssueCh(interaction);
+
+  if (!allowed) {
+    await safeReply(interaction, {
+      content: `Only admins or the bot can delete this ticket.`,
+      flags: ephFlags
+    }, 'Ticket delete permission reply failed');
     return;
   }
 
-  const isManager = await canManageTicket(interaction);
-  const isOwner = meta.userId === interaction.user.id;
-  if (!isManager && !isOwner) {
-    await interaction.reply({
-      content: 'Only the ticket owner or staff can delete this ticket.',
-      flags: EPHEMERAL_FLAG
-    });
-    return;
-  }
+  await safeReply(interaction, {
+    content: `Deleting this ticket...`,
+    flags: ephFlags
+  }, 'Ticket delete reply failed');
 
-  if (isManager) {
-    await interaction.reply({
-      content: 'Deleting this ticket...',
-      flags: EPHEMERAL_FLAG
-    }).catch(() => null);
-    clearTicketTimers(interaction.channel.id);
-    await interaction.channel.delete('Support ticket closed by staff');
-    return;
-  }
-
-  const requestedDeleteAt = Math.floor((Date.now() + TICKET_USER_DELETE_DELAY_MS) / 1000);
-  const deleteAt = Number.isFinite(meta.deleteAt)
-    ? Math.min(meta.deleteAt, requestedDeleteAt)
-    : requestedDeleteAt;
-
-  await interaction.channel.setTopic(
-    ticketTopic(meta.userId, deleteAt, meta.warned),
-    'Support ticket deletion scheduled by owner'
-  );
-  scheduleTicketDelete(interaction.channel, deleteAt);
-  await interaction.reply({
-    content: `Your support ticket is scheduled to delete ${ticketOwnerDeleteText(deleteAt)}.`,
-    flags: EPHEMERAL_FLAG
-  });
+  await sleep(cfg.issueDeleteDelayMs);
+  await interaction.channel.delete('Issue ticket closed');
 }
 
-async function scheduleOpenTickets() {
-  let scheduled = 0;
+function normEmail(rawValue) {
+  return String(rawValue || '').trim().toLowerCase();
+}
 
-  for (const guild of bot.guilds.cache.values()) {
-    const channels = await guild.channels.fetch();
-    for (const channel of channels.values()) {
-      if (channel?.type !== ChannelType.GuildText) {
-        continue;
-      }
+function isValidEmail(email) {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+}
 
-      const meta = parseTicketTopic(channel.topic);
-      if (!meta?.userId || meta.type !== TICKET_PREFIX) {
-        continue;
-      }
+async function postWorkerJson(path, body) {
+  const workerUrl = process.env.LICENSE_WORKER_URL;
+  const workerSecret = process.env.LICENSE_WORKER_SECRET;
 
-      await ensureTicketExpiry(channel, meta.userId);
-      scheduled += 1;
+  if (!workerUrl || !workerSecret) {
+    throw new Error('LICENSE_WORKER_URL and LICENSE_WORKER_SECRET must be set in .env.');
+  }
+
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), cfg.httpTimeoutMs);
+
+  try {
+    const response = await fetch(`${workerUrl.replace(/\/+$/, '')}${path}`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${workerSecret}`
+      },
+      body: JSON.stringify(body),
+      signal: ctrl.signal
+    });
+
+    let payload = {};
+
+    try {
+      payload = await response.json();
+    } catch {
+      payload = {};
     }
-  }
 
-  console.log(`Support ticket self-destruct timers scheduled: ${scheduled}.`);
+    if (!response.ok) {
+      throw new Error(payload.error || `Worker request failed with status ${response.status}.`);
+    }
+
+    return payload;
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
-async function onDashboardButton(interaction) {
-  if (!await safeDeferReply(interaction, { flags: EPHEMERAL_FLAG })) {
+async function reqKey(email, tierKey, discordUserId) {
+  const body = {
+    email,
+    discordUserId
+  };
+
+  if (tierKey) {
+    body.tier = tierKey;
+  }
+
+  return await postWorkerJson('/lookup', body);
+}
+
+async function runStartupMaintenance() {
+  if (String(process.env.DISABLE_STARTUP_MAINTENANCE || '1').trim() !== '0') {
+    console.log('Startup maintenance skipped.');
     return;
   }
 
   try {
-    const profile = await fetchDashboardProfile(interaction.user.id);
-    await syncDashboardRoles(interaction, profile);
-    await interaction.editReply(await dashboardPagePayload(interaction, profile, DASHBOARD_PAGES.home));
-  } catch (err) {
-    console.error(`Dashboard profile fetch failed: ${err.stack || err.message || err}`);
-    await interaction.editReply({
-      embeds: [
-        mkEmbed({
-          title: 'Dashboard Unavailable',
-          description: 'I could not load your dashboard right now. Try again in a minute.',
-          color: 0xe74c3c
-        })
-      ],
-      components: []
-    });
-  }
-}
-
-async function onLinkButton(interaction) {
-  if (!isScopedToUser(interaction, DASHBOARD_LINK_PREFIX)) {
-    await interaction.reply({
-      content: 'This dashboard belongs to another Discord user.',
-      flags: EPHEMERAL_FLAG
-    });
-    return;
-  }
-
-  await interaction.showModal(linkAccountModal(interaction.user.id));
-}
-
-async function onDashboardSelect(interaction) {
-  if (!isScopedToUser(interaction, DASHBOARD_SELECT_PREFIX)) {
-    await interaction.reply({
-      content: 'This dashboard belongs to another Discord user.',
-      flags: EPHEMERAL_FLAG
-    });
-    return;
-  }
-
-  if (!await safeDeferUpdate(interaction)) {
-    return;
-  }
-  const page = interaction.values?.[0] || DASHBOARD_PAGES.home;
-
-  try {
-    if (page === DASHBOARD_PAGES.upgrade || page === DASHBOARD_PAGES.support) {
-      await interaction.editReply(loggingInPayload('Creating support ticket...'));
-      const { channel, created, deleteAt } = await createSupportTicket(interaction);
-      await interaction.editReply({
-        content: null,
-        embeds: [
-          mkEmbed({
-            title: 'Support',
-            description: created
-              ? `Your support ticket has been created: ${channel}\nIt will self destruct ${ticketExpiryText(deleteAt)}.`
-              : `You already have an open support ticket: ${channel}\nIt will self destruct ${ticketExpiryText(deleteAt)}.`,
-            color: DASHBOARD_THEMES.blue.color
-          })
-        ],
-        components: dashboardRows(interaction, DASHBOARD_PAGES.support),
-        files: [],
-        attachments: []
-      });
+    const payload = await postWorkerJson('/maintenance/startup', {});
+    if (payload?.started) {
+      console.log(`Startup maintenance: started for ${payload.londonDate || 'today'}.`);
       return;
     }
 
-    const profile = await fetchDashboardProfile(interaction.user.id);
-    await syncDashboardRoles(interaction, profile);
-    await interaction.editReply(await dashboardPagePayload(interaction, profile, page));
+    const result = payload?.result || {};
+    const patreon = result.patreon || {};
+    const roles = result.discordRoles || {};
+    const categoryName = patreon.membersCategory?.name || 'not updated';
+
+    console.log(
+      `Startup maintenance: ${categoryName}; roles checked ${roles.checked ?? 0}, added ${roles.added ?? 0}, removed ${roles.removed ?? 0}.`
+    );
   } catch (err) {
-    console.error(`Dashboard page update failed: ${err.stack || err.message || err}`);
-    await interaction.editReply({
-      embeds: [
-        mkEmbed({
-          title: 'Dashboard Unavailable',
-          description: 'I could not refresh this page right now. Try again in a minute.',
-          color: 0xe74c3c
-        })
-      ],
-      components: []
-    });
+    logShortErr('Startup maintenance failed', err);
   }
 }
 
-async function onDashboardRefreshButton(interaction) {
-  if (!isScopedToUser(interaction, DASHBOARD_REFRESH_PREFIX)) {
-    await interaction.reply({
-      content: 'This dashboard belongs to another Discord user.',
-      flags: EPHEMERAL_FLAG
-    });
-    return;
-  }
+function getLookupTierKey(keyDef) {
+  return keyDef.lookupTierKeys ? 'all' : keyDef.tierKey;
+}
 
-  if (!await safeDeferUpdate(interaction)) {
+async function appendTierRl(interaction, tierKey) {
+  const roleId = tierRl[tierKey];
+
+  if (!roleId || !interaction.guild) {
     return;
   }
 
   try {
-    await interaction.editReply(loggingInPayload('Refreshing dashboard...'));
-    const profile = await fetchDashboardProfile(interaction.user.id);
-    await syncDashboardRoles(interaction, profile);
-    await interaction.editReply(await dashboardPagePayload(interaction, profile, DASHBOARD_PAGES.home));
+    const member = await interaction.guild.members.fetch(interaction.user.id);
+
+    if (!member.roles.cache.has(roleId)) {
+      await member.roles.add(roleId);
+    }
   } catch (err) {
-    console.error(`Dashboard refresh failed: ${err.stack || err.message || err}`);
-    await interaction.editReply({
-      embeds: [
-        mkEmbed({
-          title: 'Dashboard Unavailable',
-          description: 'I could not refresh your dashboard right now. Try again in a minute.',
-          color: 0xe74c3c
-        })
-      ],
-      components: [],
-      attachments: []
-    });
+    logShortErr(`Failed to assign ${tierKey} role to ${interaction.user.id}`, err);
   }
 }
 
-async function onDashboardPreferenceSelect(interaction) {
-  const parsed = parsePreferenceCustomId(interaction.customId);
-  if (!parsed || parsed.userId !== interaction.user.id) {
-    await interaction.reply({
-      content: 'This settings panel belongs to another Discord user.',
-      flags: EPHEMERAL_FLAG
-    });
-    return;
-  }
-
-  if (!await safeDeferUpdate(interaction)) {
-    return;
-  }
-
+async function sendBuyPing(interaction, tierName) {
   try {
-    await interaction.editReply(loggingInPayload('Saving settings...'));
-    const value = interaction.values?.[0];
-    await updateDashboardPreferences(interaction.user.id, { [parsed.key]: value });
-    const profile = await fetchDashboardProfile(interaction.user.id);
-    await interaction.editReply(await dashboardPagePayload(interaction, profile, DASHBOARD_PAGES.settings));
-  } catch (err) {
-    console.error(`Dashboard preference update failed: ${err.stack || err.message || err}`);
-    await interaction.editReply({
-      embeds: [
-        mkEmbed({
-          title: 'Settings Not Saved',
-          description: 'I could not save that dashboard setting right now. Try again in a minute.',
-          color: 0xe74c3c
-        })
-      ],
-      components: [],
-      attachments: []
-    });
-  }
-}
+    const channel = await bot.channels.fetch(ids.ch.buyPing);
 
-async function onDashboardPreferenceResetButton(interaction) {
-  if (!isScopedToUser(interaction, DASHBOARD_PREF_RESET_PREFIX)) {
-    await interaction.reply({
-      content: 'This settings panel belongs to another Discord user.',
-      flags: EPHEMERAL_FLAG
-    });
-    return;
-  }
-
-  if (!await safeDeferUpdate(interaction)) {
-    return;
-  }
-
-  try {
-    await interaction.editReply(loggingInPayload('Resetting settings...'));
-    await updateDashboardPreferences(interaction.user.id, {}, true);
-    const profile = await fetchDashboardProfile(interaction.user.id);
-    await interaction.editReply(await dashboardPagePayload(interaction, profile, DASHBOARD_PAGES.settings));
-  } catch (err) {
-    console.error(`Dashboard preference reset failed: ${err.stack || err.message || err}`);
-    await interaction.editReply({
-      embeds: [
-        mkEmbed({
-          title: 'Settings Not Reset',
-          description: 'I could not reset your dashboard settings right now. Try again in a minute.',
-          color: 0xe74c3c
-        })
-      ],
-      components: [],
-      attachments: []
-    });
-  }
-}
-
-async function onDashboardSignOutButton(interaction) {
-  if (!isScopedToUser(interaction, DASHBOARD_SIGN_OUT_PREFIX)) {
-    await interaction.reply({
-      content: 'This settings panel belongs to another Discord user.',
-      flags: EPHEMERAL_FLAG
-    });
-    return;
-  }
-
-  if (!await safeDeferUpdate(interaction)) {
-    return;
-  }
-
-  try {
-    await interaction.editReply(loggingInPayload('Signing out...'));
-    await signOutDashboard(interaction.user.id);
-    await syncDashboardRoles(interaction, { keys: [] });
-    await interaction.editReply(emailLookupPayload(interaction));
-  } catch (err) {
-    console.error(`Dashboard sign out failed: ${err.stack || err.message || err}`);
-    await interaction.editReply({
-      embeds: [
-        mkEmbed({
-          title: 'Sign Out Failed',
-          description: 'I could not sign you out right now. Try again in a minute.',
-          color: 0xe74c3c
-        })
-      ],
-      components: [],
-      files: [],
-      attachments: []
-    });
-  }
-}
-
-async function onOnboardingNavButton(interaction) {
-  const nav = parseOnboardingCustomId(interaction.customId);
-  if (!nav || nav.userId !== interaction.user.id) {
-    await interaction.reply({
-      content: 'This setup flow belongs to another Discord user.',
-      flags: EPHEMERAL_FLAG
-    });
-    return;
-  }
-
-  if (!await safeDeferUpdate(interaction)) {
-    return;
-  }
-
-  try {
-    const profile = await fetchDashboardProfile(interaction.user.id);
-    if (userHasKeys(profile)) {
-      await interaction.editReply(await dashboardPagePayload(interaction, profile, DASHBOARD_PAGES.home));
+    if (!channel || !channel.isTextBased() || typeof channel.send !== 'function') {
       return;
     }
 
-    await interaction.editReply(emailLookupPayload(interaction));
+    await channel.send(`<@${interaction.user.id}> has bought SparxSolver ${tierName} (thank you <3)`);
   } catch (err) {
-    console.error(`Onboarding page update failed: ${err.stack || err.message || err}`);
-    await interaction.editReply({
-      embeds: [
-        mkEmbed({
-          title: 'Setup Unavailable',
-          description: 'I could not refresh this setup step right now. Try again in a minute.',
-          color: 0xe74c3c
-        })
-      ],
-      components: []
-    });
+    logShortErr(`Failed to announce ${tierName} purchase for ${interaction.user.id}`, err);
   }
 }
 
-async function onSupportTicketButton(interaction) {
-  if (!isScopedToUser(interaction, SUPPORT_TICKET_PREFIX)) {
-    await interaction.reply({
-      content: 'This support panel belongs to another Discord user.',
-      flags: EPHEMERAL_FLAG
-    });
-    return;
-  }
-
-  if (!await safeDeferUpdate(interaction)) {
-    return;
-  }
-
-  try {
-    await interaction.editReply(loggingInPayload('Creating support ticket...'));
-    const { channel, created, deleteAt } = await createSupportTicket(interaction);
-    await interaction.editReply({
-      content: null,
-      embeds: [
-        mkEmbed({
-          title: 'Support',
-          description: created
-            ? `Your support ticket has been created: ${channel}\nIt will self destruct ${ticketExpiryText(deleteAt)}.`
-            : `You already have an open support ticket: ${channel}\nIt will self destruct ${ticketExpiryText(deleteAt)}.`,
-          color: DASHBOARD_THEMES.blue.color
-        })
-      ],
-      components: dashboardRows(interaction, DASHBOARD_PAGES.support),
-      files: [],
-      attachments: []
-    });
-  } catch (err) {
-    console.error(`Support ticket creation failed: ${err.stack || err.message || err}`);
-    await interaction.editReply({
-      content: 'I could not create a support ticket right now. Make sure the bot has Manage Channels permission.',
-      embeds: [],
-      components: []
-    });
-  }
+function isAllowedMessageAuthor(userId) {
+  const id = String(userId || '');
+  return okMsgAuthorIds.has(id) || id === bot.user?.id;
 }
 
-async function onSupportInfoButton(interaction, kind) {
-  const prefix = kind === 'errors' ? SUPPORT_ERROR_CODES_PREFIX : SUPPORT_INFO_PREFIX;
-  if (!isScopedToUser(interaction, prefix)) {
-    await interaction.reply({
-      content: 'This support panel belongs to another Discord user.',
-      flags: EPHEMERAL_FLAG
-    });
-    return;
-  }
-
-  if (!await safeDeferUpdate(interaction)) {
-    return;
-  }
-
-  try {
-    const profile = await fetchDashboardProfile(interaction.user.id);
-    const payload = kind === 'errors'
-      ? supportErrorCodesPayload(interaction, profile)
-      : supportImportantInfoPayload(interaction, profile);
-    await interaction.editReply(clearMessagePayload(payload));
-  } catch (err) {
-    console.error(`Support info update failed: ${err.stack || err.message || err}`);
-    const payload = kind === 'errors'
-      ? supportErrorCodesPayload(interaction, { keys: [] })
-      : supportImportantInfoPayload(interaction, { keys: [] });
-    await interaction.editReply(clearMessagePayload(payload));
-  }
-}
-
-async function onLinkModal(interaction) {
-  const ownerId = parseScopedCustomId(interaction.customId, DASHBOARD_LINK_MODAL_PREFIX);
-  if (ownerId !== interaction.user.id) {
-    await interaction.reply({
-      content: 'This link form belongs to another Discord user.',
-      flags: EPHEMERAL_FLAG
-    });
-    return;
-  }
-
-  const email = normalizeEmail(interaction.fields.getTextInputValue('email'));
-  if (!validEmail(email)) {
-    if (!await safeUpdate(interaction, emailLookupPayload(
-      interaction,
-      'Enter the same valid email address you use for Patreon.'
-    ))) {
-      return;
-    }
-    return;
-  }
-
-  if (!await safeUpdate(interaction, loggingInPayload('Logging in...'))) {
-    return;
-  }
-
-  try {
-    const profile = await fetchDashboardProfile(interaction.user.id, email);
-    await syncDashboardRoles(interaction, profile);
-    if (!profile?.linked || !profileKeys(profile).length) {
-      await interaction.editReply(emailLookupPayload(
-        interaction,
-        `No SparxSolver keys were found for \`${email}\`.`
-      ));
-      return;
-    }
-
-    await interaction.editReply(await dashboardPagePayload(interaction, profile, DASHBOARD_PAGES.home));
-  } catch (err) {
-    console.error(`Dashboard link failed: ${err.stack || err.message || err}`);
-    await interaction.editReply(emailLookupPayload(
-      interaction,
-      'I could not link that account right now. Try again in a minute.'
-    ));
-  }
-}
+let readyHandled = false;
+let readyTimer = null;
 
 async function onReady() {
-  if (ready) {
+  if (readyHandled) {
     return;
   }
 
-  ready = true;
+  readyHandled = true;
   if (readyTimer) {
     clearTimeout(readyTimer);
     readyTimer = null;
   }
 
   console.log(`Logged in as ${bot.user.tag}`);
-  await resendDashboardPanel();
-  await scheduleOpenTickets();
+  console.log(`Runtime file: ${__filename}`);
+  console.log(`Runtime cwd: ${process.cwd()}`);
+  console.log(`Runtime version source: ${getBotVersionSource()}.`);
+  console.log(`Registered ticket panel channels: ${[...issByCh.keys()].join(', ')}`);
+  try {
+    await refreshBotVersion();
+    verifyErrorCodeDropdownCoverage();
+    await refAllMsgs();
+    await scheduleOpenIssueTickets();
+    await runStartupMaintenance();
+  } catch (err) {
+    logShortErr('Startup task failed', err);
+  }
 }
 
-bot.once(Events.ClientReady, onReady);
+bot.once('clientReady', onReady);
 
-bot.on(Events.InteractionCreate, async interaction => {
-  try {
-    const rateLimit = checkDashboardRateLimit(interaction);
-    if (rateLimit.limited) {
-      await acknowledgeRateLimitedInteraction(interaction, rateLimit);
-      return;
-    }
+bot.on('warn', warning => {
+  console.warn(`Discord warning: ${compactText(warning, 240)}`);
+});
 
-    if (interaction.isButton()) {
-      if (interaction.customId === DASHBOARD_BUTTON_ID) {
-        await onDashboardButton(interaction);
-        return;
-      }
-      if (interaction.customId.startsWith(`${ONBOARDING_NAV_PREFIX}:`)) {
-        await onOnboardingNavButton(interaction);
-        return;
-      }
-      if (interaction.customId.startsWith(`${DASHBOARD_REFRESH_PREFIX}:`)) {
-        await onDashboardRefreshButton(interaction);
-        return;
-      }
-      if (interaction.customId.startsWith(`${DASHBOARD_PREF_RESET_PREFIX}:`)) {
-        await onDashboardPreferenceResetButton(interaction);
-        return;
-      }
-      if (interaction.customId.startsWith(`${DASHBOARD_SIGN_OUT_PREFIX}:`)) {
-        await onDashboardSignOutButton(interaction);
-        return;
-      }
-      if (interaction.customId.startsWith(`${DASHBOARD_LINK_PREFIX}:`)) {
-        await onLinkButton(interaction);
-        return;
-      }
-      if (interaction.customId === SUPPORT_TICKET_DELETE_PREFIX) {
-        await onDeleteTicketButton(interaction);
-        return;
-      }
-      if (interaction.customId.startsWith(`${SUPPORT_TICKET_PREFIX}:`)) {
-        await onSupportTicketButton(interaction);
-        return;
-      }
-      if (interaction.customId.startsWith(`${SUPPORT_ERROR_CODES_PREFIX}:`)) {
-        await onSupportInfoButton(interaction, 'errors');
-        return;
-      }
-      if (interaction.customId.startsWith(`${SUPPORT_INFO_PREFIX}:`)) {
-        await onSupportInfoButton(interaction, 'info');
-        return;
-      }
-    }
-
-    if (interaction.isStringSelectMenu() && interaction.customId.startsWith(`${DASHBOARD_PREF_PREFIX}:`)) {
-      await onDashboardPreferenceSelect(interaction);
-      return;
-    }
-
-    if (interaction.isStringSelectMenu() && interaction.customId.startsWith(`${DASHBOARD_SELECT_PREFIX}:`)) {
-      await onDashboardSelect(interaction);
-      return;
-    }
-
-    if (interaction.isModalSubmit() && interaction.customId.startsWith(`${DASHBOARD_LINK_MODAL_PREFIX}:`)) {
-      await onLinkModal(interaction);
-      return;
-    }
-  } catch (err) {
-    if (isUnknownInteractionError(err)) {
-      noteExpiredInteraction('during handler');
-      return;
-    }
-    console.error(`Interaction handler failed: ${err.stack || err.message || err}`);
-    if (!interaction.replied && !interaction.deferred) {
-      await interaction.reply({
-        content: 'That dashboard action failed. Try again in a minute.',
-        flags: EPHEMERAL_FLAG
-      }).catch(() => null);
-    }
+bot.on('error', err => {
+  if (isStaleInteractionErr(err)) {
+    console.warn(`Discord stale interaction ignored: ${formatErr(err, 120)}.`);
+    return;
   }
-});
 
-bot.on(Events.Warn, warning => {
-  console.warn(`Discord warning: ${clip(warning, 240)}`);
-});
-
-bot.on(Events.Error, err => {
-  console.error(`Discord client error: ${err.stack || err.message || err}`);
+  logShortErr('Discord client error', err);
 });
 
 process.on('unhandledRejection', err => {
-  console.error(`Unhandled rejection: ${err.stack || err.message || err}`);
+  logShortErr('Unhandled rejection', err);
 });
 
 process.on('uncaughtException', err => {
-  console.error(`Uncaught exception: ${err.stack || err.message || err}`);
-  process.exitCode = 1;
+  logShortErr('Uncaught exception', err);
+});
+
+bot.on('messageCreate', async message => {
+  if (!message.guild || !autoDelChIds.has(message.channelId)) {
+    return;
+  }
+
+  if (isAllowedMessageAuthor(message.author?.id)) {
+    return;
+  }
+
+  try {
+    await message.delete();
+  } catch (err) {
+    logShortErr(`Failed to delete guarded message ${message.id} in ${message.channelId}`, err);
+  }
+});
+
+bot.on('interactionCreate', async interaction => {
+  if (interaction.isStringSelectMenu()) {
+    if (interaction.customId !== cid.errorCodeSelect) {
+      return;
+    }
+
+    const errorCode = String(interaction.values?.[0] || '').trim();
+    const errorDef = errorCodeByCode.get(errorCode);
+
+    if (!errorDef) {
+      await safeReply(interaction, {
+        content: `I could not match that error code. Use the refreshed error-code menu and try again.`,
+        flags: ephFlags
+      }, 'Unknown error-code reply failed');
+      return;
+    }
+
+    await safeReply(interaction, {
+      embeds: [mkErrCodeEmbed(errorDef)],
+      flags: ephFlags
+    }, 'Error-code reply failed');
+    return;
+  }
+
+  if (interaction.isButton()) {
+    if (interaction.customId === cid.setupBtn) {
+      await safeReply(interaction, {
+        ...mkSetupPayload(0),
+        flags: ephFlags
+      }, 'Setup reply failed');
+      return;
+    }
+
+    if (interaction.customId.startsWith(`${cid.setupPage}:`)) {
+      const pgIdx = Number.parseInt(interaction.customId.split(':')[1], 10);
+      await safeUpdate(interaction, mkSetupPayload(Number.isFinite(pgIdx) ? pgIdx : 0), 'Setup page update failed');
+      return;
+    }
+
+    if (isExactCustomId(interaction.customId, cid.infoMenu, legacyCid.infoMenu)) {
+      await safeReply(interaction, {
+        ...mkInfoMenuPayload(),
+        flags: ephFlags
+      }, 'Info menu reply failed');
+      return;
+    }
+
+    const infoCode = getCustomIdCode(interaction.customId, cid.infoBtn, legacyCid.infoBtn);
+    if (infoCode !== null) {
+      const infoDef = invInfoByCd.get(infoCode);
+
+      if (!infoDef) {
+        await safeReply(interaction, {
+          ...mkInfoMenuPayload(),
+          flags: ephFlags
+        }, 'Unknown info-button fallback failed');
+        return;
+      }
+
+      await safeReply(interaction, {
+        embeds: [mkEmb(infoDef.embed)],
+        flags: ephFlags
+      }, 'Info reply failed');
+      return;
+    }
+
+    const statusSegments = getCustomIdSegments(interaction.customId, cid.issueStat, legacyCid.issueStat);
+    if (statusSegments) {
+      const [issChId, actCode] = statusSegments;
+      const issueDef = issByCh.get(issChId);
+      const actionDef = issActByCd.get(actCode);
+
+      if (!issueDef || !actionDef) {
+        await safeReply(interaction, {
+          content: `That status action was refreshed. Use the current status panel and try again.`,
+          flags: ephFlags
+        }, 'Unknown status-action reply failed');
+        return;
+      }
+
+      const acknowledged = await replyStatusLoading(interaction);
+
+      if (!acknowledged) {
+        return;
+      }
+
+      try {
+        const statusText = await getIssueStatusText(issueDef, actionDef);
+
+        await safeEditReply(interaction, {
+          embeds: [mkEmb({
+            title: `SparxSolver - Live Status`,
+            description: `Private live status report for SparxSolver services.`,
+            color: issueDef.embed.color
+          }, statusText)]
+        }, 'Status edit reply failed');
+      } catch (err) {
+        logShortErr('Failed to update issue status panel', err);
+        await safeEditReply(interaction, {
+          content: `I could not run the status check right now. Try again in a minute.`
+        }, 'Status failure reply failed');
+      }
+
+      return;
+    }
+
+    if (getCustomIdSegments(interaction.customId, cid.issueOpen, legacyCid.issueOpen)) {
+      const { issueChannelId, ticketCode } = parseIssueOpenCustomId(interaction.customId);
+      const { issueDef, ticketDef } = getIssueOpenTarget(interaction.channelId, issueChannelId, ticketCode);
+
+      const acknowledged = await safeDeferReply(interaction, { flags: ephFlags }, 'Ticket defer reply failed');
+      if (!acknowledged) {
+        return;
+      }
+
+      try {
+        const { channel, created, delAtUnix } = await createIssueChannel(interaction, issueDef, ticketDef);
+        const expText = formatIssueExpiry(delAtUnix);
+        const ticketName = getTicketReplyName(issueDef, ticketDef);
+        await safeEditReply(interaction,
+          created
+            ? `Your ${ticketName} ticket has been created: ${channel}\nIt will self destruct at ${expText}.`
+            : `You already have an open ${ticketName} ticket: ${channel}\nIt will self destruct at ${expText}.`,
+          'Ticket result reply failed'
+        );
+      } catch (err) {
+        logShortErr('Failed to create issue ticket', err);
+        await safeEditReply(interaction, `I could not create a ticket right now. Try again in a minute.`, 'Ticket failure reply failed');
+      }
+
+      return;
+    }
+
+    if (interaction.customId === cid.issueDelete || interaction.customId.startsWith(`${cid.issueDelete}:`)) {
+      try {
+        await delIssueCh(interaction);
+      } catch (err) {
+        logShortErr('Failed to delete issue ticket', err);
+
+        if (!interaction.replied && !interaction.deferred) {
+          await safeReply(interaction, {
+            content: `I could not delete this ticket right now.`,
+            flags: ephFlags
+          }, 'Ticket delete failure reply failed');
+        }
+      }
+
+      return;
+    }
+
+    if (interaction.customId !== cid.keyBtn) {
+      return;
+    }
+
+    const keyDef = keyByCh.get(interaction.channelId);
+
+    if (!keyDef) {
+      await safeReply(interaction, {
+        content: `This key lookup button is not enabled in this channel.`,
+        flags: ephFlags
+      }, 'Key lookup disabled reply failed');
+      return;
+    }
+
+    const modal = new ModalBuilder()
+      .setCustomId(`${cid.keyModal}:${interaction.channelId}`)
+      .setTitle(`SparxSolver - ${keyDef.tierName}`);
+
+    const emailInput = new TextInputBuilder()
+      .setCustomId('email')
+      .setLabel(`Email used to buy it`)
+      .setPlaceholder(`name@example.com`)
+      .setStyle(TextInputStyle.Short)
+      .setMinLength(5)
+      .setMaxLength(254)
+      .setRequired(true);
+
+    modal.addComponents(
+      new ActionRowBuilder().addComponents(emailInput)
+    );
+
+    await safeInteractionCall('Key lookup modal failed', () => interaction.showModal(modal));
+    return;
+  }
+
+  if (!interaction.isModalSubmit()) {
+    return;
+  }
+
+  if (!interaction.customId.startsWith(`${cid.keyModal}:`)) {
+    return;
+  }
+
+  const srcChId = interaction.customId.split(':')[1] || interaction.channelId;
+  const keyDef = keyByCh.get(srcChId);
+
+  if (!keyDef) {
+    await safeReply(interaction, {
+      content: `This email form is not enabled in this channel.`,
+      flags: ephFlags
+    }, 'Email form disabled reply failed');
+    return;
+  }
+
+  const email = normEmail(interaction.fields.getTextInputValue('email'));
+
+  if (!isValidEmail(email)) {
+    await safeReply(interaction, {
+      content: `Enter a valid email address.`,
+      flags: ephFlags
+    }, 'Invalid email reply failed');
+    return;
+  }
+
+  const acknowledged = await safeDeferReply(interaction, { flags: ephFlags }, 'Key lookup defer reply failed');
+  if (!acknowledged) {
+    return;
+  }
+
+  try {
+    const result = await reqKey(email, getLookupTierKey(keyDef), interaction.user.id);
+
+    if (!result.found || !result.licenseKey) {
+      if (result.reason === 'expired') {
+        const expiredAt = Number(result.expires);
+        const foundTierKey = result.tier || keyDef.tierKey;
+        const foundTierName = tierNames[foundTierKey] || keyDef.tierName || 'SparxSolver';
+        const expiredText = Number.isFinite(expiredAt) ? ` It expired <t:${Math.floor(expiredAt)}:R>.` : '';
+        await safeEditReply(interaction, `A SparxSolver ${foundTierName} key was found for that email, but it has expired.${expiredText}`, 'Expired key reply failed');
+        return;
+      }
+
+      await safeEditReply(interaction, mkNoKeyMsg(keyDef), 'No key reply failed');
+      return;
+    }
+
+    const foundTierKey = result.tier || keyDef.tierKey;
+    const foundTierName = tierNames[foundTierKey] || keyDef.tierName;
+
+    await appendTierRl(interaction, foundTierKey);
+
+    if (result.firstDiscordRegistration) {
+      await sendBuyPing(interaction, foundTierName);
+    }
+
+    await safeEditReply(interaction, `Your SparxSolver ${foundTierName} key is \`${result.licenseKey}\``, 'Key lookup result reply failed');
+  } catch (err) {
+    logShortErr('Failed to look up license key', err);
+    await safeEditReply(interaction, `The key lookup service is unavailable right now. Try again in a minute.`, 'Key lookup failure reply failed');
+  }
 });
 
 function startBot() {
-  const token = env('TOKEN');
-  console.log(`Starting SparxSolver dashboard bot. Managed channel: ${DASHBOARD_CHANNEL_ID}.`);
+  const token = requireEnv('TOKEN');
+  console.log(`Starting SparxSolver Discord bot (${ver})...`);
+  console.log(`Runtime file: ${__filename}`);
+  console.log(`Runtime cwd: ${process.cwd()}`);
+  console.log(`Version source: ${getBotVersionSource()}.`);
+  console.log(`TOKEN present: ${token.length} characters. Waiting for Discord ready event...`);
 
   readyTimer = setTimeout(() => {
-    if (!ready) {
-      console.warn('Discord ready event has not fired after 30s. Check the token, network, and bot gateway settings.');
+    if (!readyHandled) {
+      console.warn(
+        `Discord ready event has not fired after 30s. Check the bot token, network access to Discord, and enabled gateway intents in the Discord Developer Portal.`
+      );
     }
   }, 30000);
 
-  return bot.login(token).catch(err => {
-    if (readyTimer) {
-      clearTimeout(readyTimer);
-      readyTimer = null;
-    }
-
-    console.error(`Discord login failed: ${err.stack || err.message || err}`);
-    process.exitCode = 1;
-  });
+  return bot.login(token)
+    .then(() => {
+      console.log(`Discord login accepted; waiting for gateway ready.`);
+    })
+    .catch(err => {
+      if (readyTimer) {
+        clearTimeout(readyTimer);
+        readyTimer = null;
+      }
+      logShortErr('Discord login failed', err, 400);
+      process.exitCode = 1;
+    });
 }
 
 module.exports = {
-  DASHBOARD_BUTTON_ID,
-  DASHBOARD_CHANNEL_ID,
-  DASHBOARD_PAGES,
-  dashboardHomePayload,
-  dashboardPagePayload,
-  dashboardPanelPayload,
-  dashboardPreferences,
-  emailLookupPayload,
-  formatUnixTimestamp,
-  keyUsageBlock,
-  keyUsageLines,
-  linkAccountPayload,
-  loggingInPayload,
-  normalizeDashboardPreferences,
-  paymentMethodsText,
-  planCountLines,
-  plansUsagePayload,
-  renderedDashboardHomePayload,
-  renderDashboardImage,
-  renderUsageBar: usageBar,
-  settingsPayload,
-  supportErrorCodesPayload,
-  supportImportantInfoPayload,
-  supportTicketStartText,
+  cid,
+  legacyCid,
+  errorCodeDefs,
+  ids,
+  invInfo,
+  msgTickets,
+  getAllTicketButtonDefs,
+  getBotVersionSource,
+  getIssueOpenCustomId,
+  getIssueOpenTarget,
+  mkInfoMenuPayload,
+  mkErrCodeRow,
+  getManagedMessageParts,
+  getTicketButtonDef,
+  mkMsgPayload,
+  parseIssueOpenCustomId,
+  readExtensionErrorCodes,
+  readLocalBotVersion,
+  refreshBotVersion,
   startBot,
-  ticketExpiryText,
-  ticketTopic,
-  usageBar
+  verifyErrorCodeDropdownCoverage
 };
 
 if (require.main === module) {
   startBot();
 }
+
+// Using 1.4.1 again since it was the most profitable, i think i added too many updates and fucked it up somehow so here we are back at 1.4.1 with different channel ids since i deleted the old ones.
+// Whoops!
