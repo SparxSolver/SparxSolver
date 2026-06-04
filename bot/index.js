@@ -29,7 +29,7 @@ if (typeof fetch !== 'function') {
 
 const ids = {
   ch: {
-    buyPing: '1510728709026611232',
+    buyPing: '1510723329542324224',
     tickets: '1510722809511547000',
     autoDeleteA: '1498037391892545557',
     setup: '1492211341274910911',
@@ -376,16 +376,16 @@ const setupPgs = [
 Buy any one of our plans from our [Patreon](${urls.patreon}):
 
 [[*]](https://discord.com/channels/1486793780391575693/1510723223036366909) **Premium**: [£10 / month](https://www.patreon.com/checkout/SparxxSolver?rid=28354812)
-> gpt-5.5 with the highest quality responses, all features, full homework analysis, and full access.
+> GPT-5.5 pro with the highest quality responses, all features, full homework analysis, and full access.
 
 [[*]](https://discord.com/channels/1486793780391575693/1510722873214373898) **Pro**: [£5 / month](https://www.patreon.com/checkout/SparxxSolver?rid=28354808)
-> gpt-5.4 with the best performance, discord features, and stronger responses.
+> GPT-5.5 with the best performance, discord features, and stronger responses.
 
 [[*]](https://discord.com/channels/1486793780391575693/1510722861038567434) **Basic**: [£3 / month](https://www.patreon.com/checkout/SparxxSolver?rid=28354798)
-> gpt-5.4-mini with better pricing and a sharper accuracy.
+> GPT-5.4 with better pricing and a sharper accuracy.
 
 [[*]](https://discord.com/channels/1486793780391575693/1510722848417910826) **Affordable**: [£1 / month](https://www.patreon.com/checkout/SparxxSolver?rid=28320508)
-> gpt-4o with the lowest price possible and the fastest responses.
+> GPT-5.4 mini with the lowest price possible and the fastest responses.
 `].join('\n')
   },
   {
@@ -422,13 +422,13 @@ Thanks for using SparxSolver <3`
 function getTierCp(tierKey) {
   const cpByTier = {
     affordable: [
-`SparxSolver Affordable uses ChatGPT's gpt-4o for responses with the cheapest pricing possible and a fast, reliable experience.
+`SparxSolver Affordable uses ChatGPT's GPT-5.4 mini for responses with the cheapest pricing possible and a fast, reliable experience.
 
 Plan details:
 - £1 / month
 - Cheap pricing
-- gpt-4o responses
-- 1000 tokens per request
+- GPT-5.4 mini responses
+- 2222 tokens per request
 - Permanent role on Discord
 
 Grading:
@@ -442,13 +442,13 @@ Buy the plan on [Patreon](${urls.patreon}), then use the button below to get you
 If you're buying a key for someone else, use their email.`
     ].join('\n'),
     basic: [
-`SparxSolver Basic uses ChatGPT's gpt-5.4-mini for better responses while keeping the pricing cheap and the speed fast.
+`SparxSolver Basic uses ChatGPT's GPT-5.4 for better responses while keeping the pricing cheap and the speed fast.
 
 Plan details:
 - £3 / month
 - Cheap pricing
-- gpt-5.4-mini responses
-- 2222 tokens per request
+- GPT-5.4 responses
+- 666 tokens per request
 - Faster responses
 - Permanent role on Discord
 
@@ -463,13 +463,13 @@ Buy the plan on [Patreon](${urls.patreon}), then use the button below to get you
 If you're buying a key for someone else, use their email.`
     ].join('\n'),
     pro: [
-`SparxSolver Pro uses ChatGPT's gpt-5.4 for stronger responses, super fast performance, and better update access.
+`SparxSolver Pro uses ChatGPT's GPT-5.5 for stronger responses, super fast performance, and better update access.
 
 Plan details:
 - £5 / month
 - Giveaways and special roles
-- gpt-5.4 responses
-- 666 tokens per request
+- GPT-5.5 responses
+- 333 tokens per request
 - Super fast responses
 - Early access to updates
 - Permanent role on Discord
@@ -485,13 +485,13 @@ Buy the plan on [Patreon](${urls.patreon}), then use the button below to get you
 If you're buying a key for someone else, use their email.`
     ].join('\n'),
     premium: [
-`SparxSolver Premium uses ChatGPT's gpt-5.5 for the highest-quality responses, instant speed, and top-priority treatment.
+`SparxSolver Premium uses ChatGPT's GPT-5.5 pro for the highest-quality responses, instant speed, and top-priority treatment.
 
 Plan details:
 - £10 / month
 - Giveaways and special roles
-- gpt-5.5 responses (highest quality)
-- 333 tokens per request
+- GPT-5.5 pro responses (highest quality)
+- 83 tokens per request
 - Instant responses
 - Early access to early versions and updates
 - Test developing versions
@@ -2234,10 +2234,13 @@ async function sendBuyPing(interaction, tierName) {
     const channel = await bot.channels.fetch(ids.ch.buyPing);
 
     if (!channel || !channel.isTextBased() || typeof channel.send !== 'function') {
-      return;
+      throw new Error(`Buy ping channel ${ids.ch.buyPing} is missing or is not a sendable text channel.`);
     }
 
-    await channel.send(`<@${interaction.user.id}> has bought SparxSolver ${tierName} (thank you <3)`);
+    await channel.send({
+      content: `<@${interaction.user.id}> has bought SparxSolver ${tierName} (thank you <3)`,
+      allowedMentions: { users: [interaction.user.id] }
+    });
   } catch (err) {
     logShortErr(`Failed to announce ${tierName} purchase for ${interaction.user.id}`, err);
   }
@@ -2626,6 +2629,3 @@ module.exports = {
 if (require.main === module) {
   startBot();
 }
-
-// Using 1.4.1 again since it was the most profitable, i think i added too many updates and fucked it up somehow so here we are back at 1.4.1 with different channel ids since i deleted the old ones.
-// Whoops!
