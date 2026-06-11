@@ -1133,7 +1133,9 @@ async function clrMsgCh(channel) {
       return;
     }
 
-    const del = batch.filter(msg => msg.deletable);
+    const del = batch.filter(
+      msg => msg.deletable && msg.author?.bot
+    );
 
     if (del.size === 0) {
       throw new Error(`Channel ${channel.id} still has ${batch.size} message(s), but none are deletable by the bot.`);
@@ -2653,5 +2655,3 @@ module.exports = {
 if (require.main === module) {
   startBot();
 }
-
-// minor spelling error, really embarrassing 😭
