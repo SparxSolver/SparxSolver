@@ -134,7 +134,7 @@ function readLocalBotVersion() {
   }
 
   try {
-    return getVersionText(require('../package.json')?.version) || '0.0.0';
+    return getVersionText(require(path.join(__dirname, 'package.json'))?.version) || '0.0.0';
   } catch {
     return '0.0.0';
   }
@@ -376,7 +376,7 @@ const setupPgs = [
 Buy any one of our plans from our [Patreon](${urls.patreon}):
 
 [[*]](https://discord.com/channels/1486793780391575693/1510723223036366909) **Premium**: [£10 / month](https://www.patreon.com/checkout/SparxxSolver?rid=28354812)
-> GPT-5.5 pro with the highest quality responses, all features, full homework analysis, and full access.
+> GPT-5.5 with the highest quality responses, all features, full homework analysis, and full access.
 
 [[*]](https://discord.com/channels/1486793780391575693/1510722873214373898) **Pro**: [£5 / month](https://www.patreon.com/checkout/SparxxSolver?rid=28354808)
 > GPT-5.5 with the best performance, discord features, and stronger responses.
@@ -426,17 +426,10 @@ function getTierCp(tierKey) {
 
 Plan details:
 - £1 / month
-- Cheap pricing
-- GPT-5.4 mini responses
-- 2222 tokens per request
-- Permanent role on Discord
-
-Grading:
-- Year 7 maths (perfect)
-- Year 8 maths (perfect)
-- Year 9 maths (great)
-- Year 10 maths (good)
-- Year 11 maths (bad)
+- GPT-5.4 mini
+- High reasoning
+- Fast use
+- 400K Context indow
 
 Buy the plan on [Patreon](${urls.patreon}), then use the button below to get your key.
 If you're buying a key for someone else, use their email.`
@@ -446,18 +439,10 @@ If you're buying a key for someone else, use their email.`
 
 Plan details:
 - £3 / month
-- Cheap pricing
-- GPT-5.4 responses
-- 666 tokens per request
-- Faster responses
-- Permanent role on Discord
-
-Grading:
-- Year 7 maths (perfect)
-- Year 8 maths (perfect)
-- Year 9 maths (perfect)
-- Year 10 maths (great)
-- Year 11 maths (good)
+- GPT-5.4
+- Extra high reasoning
+- Super fast use
+- 1M Context window
 
 Buy the plan on [Patreon](${urls.patreon}), then use the button below to get your key.
 If you're buying a key for someone else, use their email.`
@@ -467,42 +452,23 @@ If you're buying a key for someone else, use their email.`
 
 Plan details:
 - £5 / month
-- Giveaways and special roles
-- GPT-5.5 responses
-- 333 tokens per request
-- Super fast responses
-- Early access to updates
-- Permanent role on Discord
-
-Grading:
-- Year 7 maths (perfect)
-- Year 8 maths (perfect)
-- Year 9 maths (perfect)
-- Year 10 maths (perfect)
-- Year 11 maths (great)
+- GPT-5.5
+- Extra high reasoning
+- Instant use
+- 1M Context window
 
 Buy the plan on [Patreon](${urls.patreon}), then use the button below to get your key.
 If you're buying a key for someone else, use their email.`
     ].join('\n'),
     premium: [
-`SparxSolver Premium uses ChatGPT's GPT-5.5 pro for the highest-quality responses, instant speed, and top-priority treatment.
+`SparxSolver Premium uses ChatGPT's Latest model for the highest-quality responses, instant speed, and top-priority treatment.
 
 Plan details:
 - £10 / month
-- Giveaways and special roles
-- GPT-5.5 pro responses (highest quality)
-- 83 tokens per request
-- Instant responses
-- Early access to early versions and updates
-- Test developing versions
-- Requests and top priority treatment
-
-Grading:
-- Year 7 maths (perfect)
-- Year 8 maths (perfect)
-- Year 9 maths (perfect)
-- Year 10 maths (perfect)
-- Year 11 maths (perfect)
+- Best available AI model
+- The highest reasoning
+- Instant use
+- Unlimited Context window
 
 Buy the plan on [Patreon](${urls.patreon}), then use the button below to get your key.
 If you're buying a key for someone else, use their email.`
@@ -1244,13 +1210,7 @@ async function runHttpProbe(url, label) {
       signal: ctrl.signal
     });
 
-    let preview = '';
-
-    try {
-      preview = (await res.text()).slice(0, 120);
-    } catch {
-      preview = '';
-    }
+    const preview = await readResponsePreview(res, 120);
 
     return {
       label,
@@ -1269,6 +1229,35 @@ async function runHttpProbe(url, label) {
     };
   } finally {
     clearTimeout(timer);
+  }
+}
+
+async function readResponsePreview(response, maxChars = 500) {
+  try {
+    if (!response.body || typeof response.body.getReader !== 'function') {
+      return compactText(await response.text(), maxChars);
+    }
+
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let text = '';
+
+    while (text.length < maxChars) {
+      const { done, value } = await reader.read();
+      if (done) {
+        break;
+      }
+      text += decoder.decode(value, { stream: true });
+    }
+
+    text += decoder.decode();
+    if (text.length >= maxChars) {
+      await reader.cancel().catch(() => {});
+    }
+
+    return compactText(text, maxChars);
+  } catch {
+    return '';
   }
 }
 
@@ -1521,6 +1510,12 @@ function clearIssueTimers(channelId) {
   }
 
   issueTimers.delete(channelId);
+}
+
+function clearAllIssueTimers() {
+  for (const channelId of [...issueTimers.keys()]) {
+    clearIssueTimers(channelId);
+  }
 }
 
 function setIssueTimer(handler, delayMs) {
@@ -2302,6 +2297,34 @@ process.on('unhandledRejection', err => {
 
 process.on('uncaughtException', err => {
   logShortErr('Uncaught exception', err);
+  process.exitCode = 1;
+});
+
+let shuttingDown = false;
+
+async function shutdownBot(signal) {
+  if (shuttingDown) {
+    return;
+  }
+
+  shuttingDown = true;
+  console.log(`Received ${signal}; shutting down Discord client...`);
+  clearAllIssueTimers();
+
+  try {
+    await bot.destroy();
+  } catch (err) {
+    logShortErr('Discord client shutdown failed', err);
+    process.exitCode = 1;
+  }
+}
+
+process.once('SIGINT', () => {
+  void shutdownBot('SIGINT');
+});
+
+process.once('SIGTERM', () => {
+  void shutdownBot('SIGTERM');
 });
 
 bot.on('messageCreate', async message => {
@@ -2578,7 +2601,7 @@ function startBot() {
   console.log(`Runtime file: ${__filename}`);
   console.log(`Runtime cwd: ${process.cwd()}`);
   console.log(`Version source: ${getBotVersionSource()}.`);
-  console.log(`TOKEN present: ${token.length} characters. Waiting for Discord ready event...`);
+  console.log(`Discord token present. Waiting for Discord ready event...`);
 
   readyTimer = setTimeout(() => {
     if (!readyHandled) {
@@ -2622,6 +2645,7 @@ module.exports = {
   readExtensionErrorCodes,
   readLocalBotVersion,
   refreshBotVersion,
+  shutdownBot,
   startBot,
   verifyErrorCodeDropdownCoverage
 };
