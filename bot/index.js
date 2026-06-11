@@ -429,7 +429,7 @@ Plan details:
 - GPT-5.4 mini
 - High reasoning
 - Fast use
-- 400K Context indow
+- 400K Context window
 
 Buy the plan on [Patreon](${urls.patreon}), then use the button below to get your key.
 If you're buying a key for someone else, use their email.`
@@ -2653,3 +2653,5 @@ module.exports = {
 if (require.main === module) {
   startBot();
 }
+
+// minor spelling error, really embarrassing 😭
