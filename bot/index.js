@@ -1129,20 +1129,21 @@ async function clrMsgCh(channel) {
   while (true) {
     const batch = await channel.messages.fetch({ limit: 100 });
 
-    if (batch.size === 0) {
-      return;
-    }
-
     const del = batch.filter(
-      msg => msg.deletable && msg.author?.bot
+      msg => msg.deletable && msg.author?.id === bot.user.id
     );
 
     if (del.size === 0) {
-      throw new Error(`Channel ${channel.id} still has ${batch.size} message(s), but none are deletable by the bot.`);
+      return;
     }
 
-    const fresh = del.filter(msg => Date.now() - msg.createdTimestamp < cfg.purgeAgeMs);
-    const stale = del.filter(msg => Date.now() - msg.createdTimestamp >= cfg.purgeAgeMs);
+    const fresh = del.filter(
+      msg => Date.now() - msg.createdTimestamp < cfg.purgeAgeMs
+    );
+
+    const stale = del.filter(
+      msg => Date.now() - msg.createdTimestamp >= cfg.purgeAgeMs
+    );
 
     let rm = 0;
 
@@ -1160,7 +1161,7 @@ async function clrMsgCh(channel) {
     }
 
     if (rm === 0) {
-      throw new Error(`Channel ${channel.id} could not be cleared. Remaining fetched messages: ${batch.size}.`);
+      return;
     }
 
     await sleep(cfg.purgeRetryMs);
