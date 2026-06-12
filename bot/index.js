@@ -431,7 +431,7 @@ Plan details:
 - Fast use
 - 400K Context window
 
-Buy the plan on [Patreon](${urls.patreon}), then use the button below to get your key.
+Buy the plan at https://www.patreon.com/checkout/SparxxSolver?rid=28320508, then use the button below to get your key.
 If you're buying a key for someone else, use their email.`
     ].join('\n'),
     basic: [
@@ -444,7 +444,7 @@ Plan details:
 - Super fast use
 - 1M Context window
 
-Buy the plan on [Patreon](${urls.patreon}), then use the button below to get your key.
+Buy the plan at https://www.patreon.com/checkout/SparxxSolver?rid=28354798, then use the button below to get your key.
 If you're buying a key for someone else, use their email.`
     ].join('\n'),
     pro: [
@@ -457,7 +457,7 @@ Plan details:
 - Instant use
 - 1M Context window
 
-Buy the plan on [Patreon](${urls.patreon}), then use the button below to get your key.
+Buy the plan at https://www.patreon.com/checkout/SparxxSolver?rid=28354808, then use the button below to get your key.
 If you're buying a key for someone else, use their email.`
     ].join('\n'),
     premium: [
@@ -470,7 +470,7 @@ Plan details:
 - Instant use
 - Unlimited Context window
 
-Buy the plan on [Patreon](${urls.patreon}), then use the button below to get your key.
+Buy the plan at https://www.patreon.com/checkout/SparxxSolver?rid=28354812, then use the button below to get your key.
 If you're buying a key for someone else, use their email.`
     ].join('\n')
   };
